@@ -1,0 +1,1 @@
+https://www.vulnerability-lab.com/submit.php
