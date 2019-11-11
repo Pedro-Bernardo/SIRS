@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import argparse
 from argparse import RawTextHelpFormatter
+import sys
 import getpass
 import ssl
 import http.client
@@ -20,60 +21,57 @@ class Client:
 
     username = ''
 
-    #def __init__(self):
+    def __init__(self):
+        self.username = "teste"
         #self.register()
+
+    def create_https_connection(self, method, endpoint, json_data):
+        context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=self.server_cert)
+        ssl.match_hostname = lambda cert, hostname: True
+
+        headers = {'Content-type': 'application/json'}
+
+        conn = http.client.HTTPSConnection(self.HOST_ADDR, context=context)
+        #conn.request('POST', '/register', json_data, headers)
+        conn.request(method, endpoint, json_data, headers)
+
+        response = conn.getresponse()
+        print("Server response: {}".format(response.read().decode()))
 
     # /register
     def register(self):
         print('New Client register')
-        input('username: ')
-        self.username = getpass.getuser()
+        self.username = input('username: ')
         passwd = getpass.getpass('password: ')
         passwd_rep = getpass.getpass('repeat password: ')
 
         if passwd.__eq__(passwd_rep):
-            context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=self.server_cert)
-            # context.load_cert_chain(certfile=self.client_cert, keyfile=self.client_key)
-            ssl.match_hostname = lambda cert, hostname: True # is this right? should not verify hostname?
-            #ssl.CertificateError: hostname '127.0.0.1' doesn't match 'SIRS'
-            #conn = http.client.HTTPSConnection(self.HOST_ADDR, context=context, check_hostname=self.HOST_NAME)
-            conn = http.client.HTTPSConnection(self.HOST_ADDR, context=context)
-
-            headers = {'Content-type': 'application/json'}
-
-            foo = {'username': self.username}
+            foo = {'username': self.username, "passwd": passwd}
             json_data = json.dumps(foo)
-
-            conn.request('POST', '/login', json_data, headers)
-
-            response = conn.getresponse()
-            print("Server response: {}".format(response.read().decode()))
-
+            self.create_https_connection('POST', '/register', json_data)
         else:
-            print('Error: passwords do not match')
+            error('passwords do not match')
 
     # /login
     def login(self):
         print("Client login")
 
-        """context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=server_cert)
-        context.load_cert_chain(certfile=client_cert, keyfile=client_key)
+        self.username = input('username: ')
+        passwd = getpass.getpass('password: ')
 
-        conn = http.client.HTTPSConnection(HOST_ADDR, context=context, check_hostname=HOST_NAME)
-
-        headers = {'Content-type': 'application/json'}
-
-        foo = {'text': 'Hello HTTP #1 **cool**, and #1!'}
+        foo = {'username': self.username, "passwd": passwd}
         json_data = json.dumps(foo)
 
-        conn.request('POST', '/login', json_data, headers)
-
-        response = conn.getresponse()
-        print(response.read().decode())"""
+        self.create_https_connection('POST', '/login', json_data)
 
     # /submit
-    def submit(self):
+    def submit(self, vuln_description, fingerprint):
         print("submit")
+
+        foo = {'vuln_description': vuln_description, 'fingerprint': fingerprint}
+        json_data = json.dumps(foo)
+
+        self.create_https_connection('POST', '/submit', json_data)
 
     # /show
     def show(self):
@@ -82,6 +80,12 @@ class Client:
     # /score
     def score(self):
         print("score")
+
+
+def error(message):
+    print("error: {}".format(message))
+    sys.exit(1)
+
 
 def main():
 
@@ -92,16 +96,31 @@ def main():
     submit     Submit vulnerability\n\
     show       Show submissions\n\
     score      Show scores\n'
+
+    usage = '\n\
+    client <command> [<args>]\n\
+    client register\n\
+    client submit <vuln_description> <fingerprint>\n\
+    client show\n\
+    client score\n'
+
     parser = argparse.ArgumentParser(prog='client', description=description,
-                                     usage='client <command> [<args>]', formatter_class=RawTextHelpFormatter)
-    parser.add_argument('command')
+                                     usage=usage, formatter_class=RawTextHelpFormatter)
+    parser.add_argument('command', type=str, choices=['register', 'submit', 'show', 'score'])
+    parser.add_argument('vuln_description', nargs='?')
+    parser.add_argument('fingerprint', nargs='?')
 
     args = parser.parse_args()
+
+    print(args.vuln_description)
 
     if args.command.__eq__('register'):
         client.register()
     elif args.command.__eq__('submit'):
-        client.submit()
+        if args.vuln_description and args.fingerprint:
+            client.submit(args.vuln_description, args.fingerprint)
+        else:
+            parser.error('wrong arguments for submit command')
     elif args.command.__eq__('show'):
         client.show()
     elif args.command.__eq__('score'):
