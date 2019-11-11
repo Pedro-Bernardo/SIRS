@@ -2,15 +2,31 @@ package main
 
 import (
     "fmt"
+    "log"
     "net/http"
+    "encoding/json"
 )
 
 /*func handler(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintf(w, "Hi there!")
 }*/
 
+type RegisterRequest struct {
+    Username  string `json:"username"`
+    Passwd  string `json:"passwd"`
+  }
+
 func registerHandler(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintf(w, "Register")
+
+    var ur RegisterRequest
+    decoder := json.NewDecoder(r.Body)
+    decoder.Decode(&ur)
+
+    log.Printf("username: %v", ur.Username)
+    log.Printf("password: %v", ur.Passwd)
+
+    fmt.Fprintf(w, "Request body: %+v", ur.Username)
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
@@ -49,5 +65,6 @@ func main() {
 
     fmt.Println("Serving TLS")
 
+    // http.ListenAndServeTLS(":443", "../../ssl/server.crt", "../../ssl/server.key", nil)
     http.ListenAndServeTLS(":443", "../../ssl/server.crt", "../../ssl/server.key", nil)
 }
