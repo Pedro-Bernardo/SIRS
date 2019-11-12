@@ -12,8 +12,6 @@ class Client:
 
     SSL_DIR = 'ssl/'
     HOST_ADDR = '127.0.0.1'
-    HOST_NAME = 'SIRS' # name from server certificate
-    HOST_PORT = 443
 
     server_cert = SSL_DIR + 'server.crt'
     client_cert = SSL_DIR + 'client.crt'
@@ -21,26 +19,31 @@ class Client:
 
     username = ''
 
-    def __init__(self):
-        self.username = "teste"
-        #self.register()
-
-    def create_https_connection(self, method, endpoint, json_data):
+    def create_http_tls_connection(self, method, endpoint, json_data):
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=self.server_cert)
         ssl.match_hostname = lambda cert, hostname: True
 
         headers = {'Content-type': 'application/json'}
 
         conn = http.client.HTTPSConnection(self.HOST_ADDR, context=context)
-        #conn.request('POST', '/register', json_data, headers)
         conn.request(method, endpoint, json_data, headers)
 
         response = conn.getresponse()
-        print("Server response: {}".format(response.read().decode()))
+        print("Server https response: {}".format(response.read().decode()))
+
+    def create_http_connection(self, method, endpoint, json_data):
+        headers = {'Content-type': 'application/json'}
+
+        conn = http.client.HTTPConnection(self.HOST_ADDR)
+        conn.request(method, endpoint, json_data, headers)
+
+        response = conn.getresponse()
+        print("Server http response: {}".format(response.read().decode()))
 
     # /register
     def register(self):
         print('New Client register')
+
         self.username = input('username: ')
         passwd = getpass.getpass('password: ')
         passwd_rep = getpass.getpass('repeat password: ')
@@ -48,9 +51,17 @@ class Client:
         if passwd.__eq__(passwd_rep):
             foo = {'username': self.username, "passwd": passwd}
             json_data = json.dumps(foo)
-            self.create_https_connection('POST', '/register', json_data)
+            self.create_http_tls_connection('POST', '/register', json_data)
         else:
             error('passwords do not match')
+
+    # /keygen
+    def keygen(self, username):
+        print("keygen")
+
+        foo = {'username': self.username}
+        json_data = json.dumps(foo)
+        self.create_http_tls_connection('POST', '/keygen', json_data)
 
     # /login
     def login(self):
@@ -59,27 +70,42 @@ class Client:
         self.username = input('username: ')
         passwd = getpass.getpass('password: ')
 
+        self.keygen(self.username)
+
         foo = {'username': self.username, "passwd": passwd}
         json_data = json.dumps(foo)
 
-        self.create_https_connection('POST', '/login', json_data)
+        self.create_http_connection('POST', '/login', json_data)
 
     # /submit
     def submit(self, vuln_description, fingerprint):
+        self.login()
         print("submit")
 
         foo = {'vuln_description': vuln_description, 'fingerprint': fingerprint}
         json_data = json.dumps(foo)
 
-        self.create_https_connection('POST', '/submit', json_data)
+        self.create_http_connection('POST', '/submit', json_data)
 
     # /show
     def show(self):
+        self.login()
         print("show")
 
     # /score
     def score(self):
+        self.login()
         print("score")
+
+    # /admin/remove_user
+    def remove_user(self):
+        self.login()
+        print("admin : remove_user")
+
+    # /admin/remove_submission
+    def remove_submission(self):
+        self.login()
+        print("admin : remove_submission")
 
 
 def error(message):
