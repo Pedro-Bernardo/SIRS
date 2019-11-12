@@ -7,8 +7,30 @@
 - /score
 - /show
 - /admin
+- /keygen
+
+
+{ c_id=0, content="asdxfscgasvfhgzcasjk" }  
+{ username=user1, content="asdxfscgasvfhgzcasjk"}
+
+## /keygen
+- POST over TLS {username=user1, token=Cpk{pass}}
+- POST response {key:AES256-key1, secret:256-bit secret}
+
+servidor mantem tabela:
+
+
+```
+| user1 | key | secret | 
+| user2 | key | secret |
+| user3 | key | secret |
+```
+
+secret usado para HMAC
+key para cifrar pedidos HTTP
 
 ## /register
+- POST over TLS {username, password, PK(RSA)}
 
 ## /login
 - POST {user='usr', password='passwd'}
