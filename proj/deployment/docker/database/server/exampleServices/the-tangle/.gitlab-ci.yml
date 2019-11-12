@@ -1,0 +1,42 @@
+stages:
+  - build
+  - upload
+
+build_job:
+  stage: build
+  image: "debian:stretch"
+  before_script:
+    - mkdir -p "$CI_PROJECT_DIR/.apt"
+    - echo 'deb http://ftp.debian.org/debian stretch-backports main' >> /etc/apt/sources.list
+    - apt -o dir::cache="$CI_PROJECT_DIR/.apt" -yqq update
+    - apt -o dir::cache="$CI_PROJECT_DIR/.apt" -yqq install eatmydata
+    - eatmydata apt -o dir::cache="$CI_PROJECT_DIR/.apt" -yqq install git g++ python3-dev libpython3-dev libssl-dev make
+  cache:
+    paths:
+      - .apt/
+  script: make install
+  artifacts:
+    paths:
+      - metadata.yml
+      - dist_root/
+  only:
+    - master
+  tags:
+    - faust
+    - docker
+
+upload_job:
+  stage: upload
+  script:
+    - ssh ci-upload@www.faust.cs.fau.de mkdir -p "/var/www/files/internal/ci/faustctf/2018/$CI_PROJECT_NAME"
+    - tar -v -czp -H posix -f dist_root.tar.gz -C dist_root .
+    - scp metadata.yml dist_root.tar.gz "ci-upload@www.faust.cs.fau.de:/var/www/files/internal/ci/faustctf/2018/$CI_PROJECT_NAME/"
+  after_script:
+    - find "$CI_PROJECT_DIR" -mindepth 1 -delete
+  variables:
+    GIT_STRATEGY: none
+  only:
+    - master
+  tags:
+    - faust
+    - www-upload

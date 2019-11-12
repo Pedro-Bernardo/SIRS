@@ -1,0 +1,1 @@
+DAEMON_OPTS=-f -p /usr/lib/git-core/git-http-backend

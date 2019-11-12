@@ -1,0 +1,36 @@
+[Unit]
+Description=The Tangle
+
+[Service]
+WorkingDirectory=/srv/the-tangle
+ExecStart=/srv/the-tangle/run.sh
+
+User=root
+Group=the-tangle
+
+
+CPUAccounting=yes
+CPUQuota=100%
+MemoryAccounting=yes
+MemoryLimit=1000M
+
+Restart=always
+
+
+
+# Security features
+ProtectSystem=strict
+ReadWritePaths=/srv/the-tangle /run /var/log/nginx /var/lib/nginx
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateTmp=yes
+PrivateDevices=yes
+MemoryDenyWriteExecute=yes
+
+PrivateNetwork=no
+
+[Install]
+WantedBy=multi-user.target
+

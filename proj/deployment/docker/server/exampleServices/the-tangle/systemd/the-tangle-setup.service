@@ -1,0 +1,12 @@
+[Unit]
+Description=The Tangle Setup
+ConditionPathExists=!/srv/the-tangle/data/key.pem
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/the-tangle/data/
+ExecStart=/srv/the-tangle/setup.sh
+User=the-tangle
+
+[Install]
+WantedBy=multi-user.target
