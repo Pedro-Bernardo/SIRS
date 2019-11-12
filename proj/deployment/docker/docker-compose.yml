@@ -1,0 +1,54 @@
+services:
+  my_router:
+    image: router
+    cap_add:
+      - NET_ADMIN
+    networks:
+      external:
+        ipv4_address: 
+          - 10.10.10.10
+      internal:
+        ipv4_address: 
+          - 172.18.1.254
+  
+  # my_server:
+  #   image: server
+  #   cap_add:
+  #     - NET_ADMIN
+  #   networks:
+  #     internal:
+  #       ipv4_address: 
+  #         - 172.18.1.10
+  
+
+  # my_client:
+  #   image: server
+  #   cap_add:
+  #     - NET_ADMIN
+  #   networks:
+  #     external:
+  #       ipv4_address: 
+  #         - 10.10.10.50
+
+
+  # my_database:
+  #   image: db
+  #   cap_add:
+  #     - NET_ADMIN
+  #   networks:
+  #     internal:
+  #       ipv4_address: 
+  #         - 172.18.1.11
+
+networks:
+  external:
+    driver: macvlan
+    ipam:
+      config:
+        - subnet: 10.10.10.0/24
+
+  internal:
+    driver: macvlan
+    ipam:
+      config:
+        - subnet: 172.18.1.0/24

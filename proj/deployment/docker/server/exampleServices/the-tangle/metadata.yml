@@ -1,0 +1,30 @@
+name: The Tangle
+slug: the-tangle
+author:
+  - Johannes Westphal <jojo@w-hat.de>
+
+install:
+  debian_packages:
+    - python
+    - python-crypto
+    - python-git
+    - nginx
+    - spawn-fcgi
+    - fcgiwrap
+  postinst_commands:
+    - chown -R the-tangle:the-tangle "${DATA_DIR}/"
+    - chmod 700 /srv/the-tangle/data/api -R
+    - systemctl enable the-tangle-setup.service
+  prevent_outgoing_connections: True
+
+checker:
+  module: the_tangle
+  class: TheTangleChecker
+  debian_packages:
+    - python3
+    - python3-crypto
+    - python3-git
+    # pow.c has to be built manually, this are its dependencies
+    - build-essential
+    - libssl-dev
+    - python3-dev

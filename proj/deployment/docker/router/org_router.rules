@@ -1,0 +1,13 @@
+*filter
+-P INPUT DROP
+-A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+-A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+-A INPUT -i lo -j ACCEPT -m comment --comment "loopback"
+-A INPUT -d 255.255.255.255 -j ACCEPT -m comment --comment "allow broadcast traffic"
+-A INPUT -d 224.0.0.0/4 -j ACCEPT -m comment --comment "allow multicast traffic"
+-A INPUT -p icmp -j ACCEPT -m comment --comment "* > local icmp"
+-A INPUT -p igmp -j ACCEPT -m comment --comment "* > local igmp"
+COMMIT
+*nat
+-A POSTROUTING -d 172.18.0.0/16 -j MASQUERADE -m comment --comment "* > teams (hiding source)"
+COMMIT

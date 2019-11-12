@@ -1,0 +1,75 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import os
+import sys
+
+from git import Repo
+
+from hashlib import sha256
+from Crypto.PublicKey import RSA
+from Crypto.Cipher.PKCS1_v1_5 import PKCS115_Cipher
+from base64 import b64encode, b64decode
+
+refname=sys.argv[1]
+oldrev=sys.argv[2]
+newrev=sys.argv[3]
+
+repo = Repo(os.environ['GIT_DIR'])
+
+if len(repo.branches) == 0:
+    exit(0)
+
+if not newrev.startswith('666'):
+    exit(1)
+
+commit = repo.commit(newrev)
+
+if len(repo.git.cat_file('commit', newrev).split('\n\n')[0].split('\nparent '))-1 > 1:
+    exit(0)
+
+tree = commit.tree
+action = repo.git.show(tree / 'action')
+
+if action == 'register':
+    username = repo.git.show(tree / 'username')
+
+    for parent in commit.iter_parents():
+        if 'action' in parent.tree and repo.git.show(parent.tree / 'action') == 'register' and repo.git.show(parent.tree / 'username') == username:
+            print('User already exists')
+            exit(1)
+
+    print('Registered user ' + username)
+    exit(0)
+
+elif action == 'store':
+    exit(0)
+
+elif action == 'retrieve':
+    account = repo.git.show(tree / 'account')
+    password = repo.git.show(tree / 'password')
+    if account:
+        register_commit = repo.commit(account)
+        reachable = False
+        for parent in repo.head.commit.iter_parents():
+            if parent == register_commit:
+                reachable = True
+                break
+        if reachable:
+            account_tree = register_commit.tree
+            account_username = repo.git.show(account_tree / 'username')
+            account_password = repo.git.show(account_tree / 'password')
+            if sha256(password).hexdigest() == account_password:
+                ids = repo.git.show(tree / 'ids').split('\n')
+                key = RSA.importKey(open(os.path.join(os.environ['GIT_DIR'], '../key.pem')).read())
+                cipher = PKCS115_Cipher(key)
+                for id in ids:
+                    data_commit = repo.commit(id)
+                    data_tree = data_commit.tree
+                    if repo.git.show(data_tree / 'username') == account_username:
+                        data = repo.git.show(data_tree / 'data')
+                        data_decrypted = cipher.decrypt(b64decode(data), None)
+                        if '\n' in data_decrypted and account_username == data_decrypted[:data_decrypted.index('\n')]:
+                            print(id + ':' + b64encode(data_decrypted[data_decrypted.index('\n')+1:]))
+
+exit(1)
