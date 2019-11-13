@@ -1,7 +1,7 @@
-FROM alpine:3.10
+FROM ubuntu:latest
 
 # RUN apt-get update && apt-get install -y iptables tcpdump
-RUN apk update && apk add --no-cache tcpdump iptables
+RUN apt-get update && apt-get install iptables iputils-ping iproute2 tcpdump -y
 
 # tools
 # RUN apt-get install -y nginx gcc libc6-dev python-dev npm nodejs vim
@@ -13,8 +13,10 @@ WORKDIR /root
 # RUN ./setup.sh
 
 # firewall
-# COPY init.sh /init
+
 # COPY team_router.rules /team_router.rules
 # COPY org_router.rules /org_router.rules
+COPY init.sh init.sh
+CMD ./init.sh
 
-# CMD /init
+# CMD tail -f /dev/null

@@ -1,28 +1,20 @@
-FROM alpine:3.10
+FROM ubuntu:latest
 
-WORKDIR services
-
-RUN mkdir exampleServices
+WORKDIR service
 
 # RUN apk update && apk add --no-cache tcpdump socat python py2-pip git openssl nginx gcc musl-dev fcgiwrap spawn-fcgi python2-dev vim
 
-# COPY requirements/requirements.txt requirements.txt
-# RUN pip install -r requirements.txt
+RUN apt-get update && apt-get install iproute2 iputils-ping tcpdump -y
 
-# RUN apk del gcc python2-dev py2-pip
+# RUN mkdir ssl
 
-# COPY exampleServices/ exampleServices/
-
-# RUN /bin/ash -c 'cd /services/exampleServices/the-tangle/src && ./setup.sh'
-
-#ENV FLASK_APP=exampleServices/service1.py
-
-#CMD socat -u tcp-l:7777,fork system:./speedrun-004 & 
+COPY server server 
+# COPY ssl server/ssl
 
 # EXPOSE 8080
-# EXPOSE 8081
-# EXPOSE 5000
-# EXPOSE 4563
+EXPOSE 80
+EXPOSE 443
 
 COPY launch.sh launch.sh
 CMD ./launch.sh
+# CMD tail -f /dev/null

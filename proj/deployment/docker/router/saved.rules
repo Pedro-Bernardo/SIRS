@@ -1,0 +1,6 @@
+*filter
+RULES
+COMMIT
+*nat
+-A POSTROUTING -d 172.18.0.0/16 -j MASQUERADE -m comment --comment "NAT RULES"
+COMMIT

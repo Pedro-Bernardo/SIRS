@@ -1,3 +1,0 @@
-docker build -t the-tangle .
-docker rmi `docker images -f "dangling=true" -q`
-docker run --rm --name the-tangle -p 4563:4563 -it the-tangle
