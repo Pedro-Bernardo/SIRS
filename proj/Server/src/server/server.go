@@ -5,36 +5,157 @@ import (
     "log"
     "net/http"
     "crypto/tls"
+    "crypto/rsa"
+    //"crypto/sha256"
+    //"crypto/cipher"
+    //"crypto/aes"
+    "crypto/rand"
     "encoding/json"
+    "encoding/base64"
 )
+
+type Status int
+
+const (
+    OK Status = iota
+    NOK
+    ADMIN_RESERVED
+)
+
+type UserSession struct {
+    Username  string
+    Key  []byte
+    Secret  string
+}
+
+// only saves one for now
+var clientPubKey *rsa.PublicKey
 
 type RegisterRequest struct {
     Username  string `json:"username"`
     Passwd  string `json:"passwd"`
-  }
+    ClientPubKey  string `json:"clientPubKey"`
+}
+
+type RegisterResponse struct {
+    HmacSecret  string `json:"hmacSecret"`
+}
+
+type KeygenRequest struct {
+    Username  string `json:"username"`
+    EncryptedUsername  string `json:"encryptedUsername"`
+}
+
+type KeygenResponse struct {
+    Key  []byte `json:"key"`
+    Secret  string `json:"secret"`
+}
+
+type LoginRequest struct {
+    Username  string `json:"username"`
+    EncryptedPasswd  string `json:"encryptedPasswd"`
+}
+
+type SubmitRequest struct {
+    VulnDescription  string `json:"vulnDescription"`
+    Fingerprint  string `json:"fingerprint"`
+}
+
+type StatusResponse struct {
+    Status  string `json:"status"`
+}
+
+func GenerateRandomBytes(n int) ([]byte, error) {
+	b := make([]byte, n)
+	_, err := rand.Read(b)
+	if err != nil {
+		return nil, err
+	}
+
+	return b, nil
+}
+
+func GenerateRandom256bitSecret() (string, error) {
+    bytes, err := GenerateRandomBytes(32)
+	return base64.URLEncoding.EncodeToString(bytes), err
+}
+
+/*func DecryptWithPublicKey(ciphertext []byte, pub *rsa.PublicKey) []byte {
+
+	hash := sha256.New()
+	plaintext, err := rsa.DecryptOAEP(hash, rand.Reader, pub, ciphertext, nil)
+	if err != nil {
+		log.Error(err)
+	}
+	return plaintext
+} */
 
 func registerHandler(w http.ResponseWriter, r *http.Request) {
+    
+    var userRequest RegisterRequest
+    json.NewDecoder(r.Body).Decode(&userRequest)
+
+    log.Printf("register request from: %v", userRequest.Username)
+
+    // TODO falta aqui a parte da base de dados: guardar user data
+
+
+    //fmt.Fprintf(w, "Request body: %+v", ur.Username)
     fmt.Fprintf(w, "Register")
-
-    var ur RegisterRequest
-    decoder := json.NewDecoder(r.Body)
-    decoder.Decode(&ur)
-
-    log.Printf("username: %v", ur.Username)
-    log.Printf("password: %v", ur.Passwd)
-
-    fmt.Fprintf(w, "Request body: %+v", ur.Username)
 }
 
 func keygenHandler(w http.ResponseWriter, r *http.Request) {
+
+    var userRequest KeygenRequest
+    json.NewDecoder(r.Body).Decode(&userRequest)
+
+    log.Printf("keygen request from: %v", userRequest.Username)
+
+    decodedUsername, err := base64.StdEncoding.DecodeString(userRequest.EncryptedUsername)
+    log.Printf("%v", decodedUsername)
+    if err != nil {
+        fmt.Println("decode error:", err)
+		return
+    }
+
+    // TODO falta aqui a parte da base de dados e o que fazer com decodedPasswd
+    
+    w.Header().Set("Content-Type", "application/json")
+    
+    key := []byte("AES256Key-32Characters1234567890")
+    secret, err := GenerateRandom256bitSecret()
+    if err != nil {
+        fmt.Println("generate secret error:", err)
+		return
+    }
+
+    keygenResponse:= KeygenResponse {
+                            Key: key,
+                            Secret: secret}
+    json.NewEncoder(w).Encode(keygenResponse)
+
     fmt.Fprintf(w, "Keygen")
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
+    log.Printf("login handler")
+    var userRequest LoginRequest
+    json.NewDecoder(r.Body).Decode(&userRequest)
+
+    log.Printf("login request from: %v", userRequest.Username)
+
+    // TODO ver se hash guardada e igual a hash(username + passwd)
+
     fmt.Fprintf(w, "Login")
 }
 
 func submitHandler(w http.ResponseWriter, r *http.Request) {
+    log.Printf("submit handler")
+    var userRequest SubmitRequest
+    json.NewDecoder(r.Body).Decode(&userRequest)
+
+    log.Printf("submit request for: %v", userRequest.VulnDescription)
+
     fmt.Fprintf(w, "Submit")
 }
 
