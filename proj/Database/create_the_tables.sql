@@ -17,7 +17,49 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
--- Name: update_points(); Type: FUNCTION; Schema: public; Owner: postgres
+-- Name: remove_points(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.remove_points() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+	UPDATE accounts AC
+	SET points = AC.points - 1
+	WHERE OLD.user_id = AC.id;
+	RETURN NEW;
+END
+$$;
+
+
+ALTER FUNCTION public.remove_points() OWNER TO sirs;
+
+--
+-- Name: remove_user(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.remove_user() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN	
+	DELETE FROM sessions USING accounts  WHERE user_id = (SELECT user_id FROM accounts WHERE username = OLD.username);	
+	DELETE FROM submissions WHERE user_id = (SELECT user_id FROM accounts WHERE username = OLD.username);
+	
+	DROP TRIGGER IF EXISTS remove_user ON accounts;
+	DELETE FROM accounts WHERE username = OLD.username;
+	
+	CREATE TRIGGER remove_user BEFORE DELETE ON accounts
+    FOR EACH ROW EXECUTE PROCEDURE remove_user();
+	
+	RETURN NEW;
+END
+$$;
+
+
+ALTER FUNCTION public.remove_user() OWNER TO sirs;
+
+--
+-- Name: update_points(); Type: FUNCTION; Schema: public; Owner: sirs
 --
 
 CREATE FUNCTION public.update_points() RETURNS trigger
@@ -32,7 +74,7 @@ END
 $$;
 
 
-ALTER FUNCTION public.update_points() OWNER TO postgres;
+ALTER FUNCTION public.update_points() OWNER TO sirs;
 
 SET default_tablespace = '';
 
@@ -178,6 +220,65 @@ ALTER TABLE ONLY public.submissions ALTER COLUMN id SET DEFAULT nextval('public.
 
 
 --
+-- Data for Name: accounts; Type: TABLE DATA; Schema: public; Owner: sirs
+--
+
+COPY public.accounts (id, username, pass, points) FROM stdin;
+2	Tai	aaa	0
+1	Pedro	aaa	1
+\.
+
+
+--
+-- Data for Name: binaries; Type: TABLE DATA; Schema: public; Owner: sirs
+--
+
+COPY public.binaries (id, bin_fp) FROM stdin;
+1	a
+2	b
+4	c
+\.
+
+
+--
+-- Data for Name: sessions; Type: TABLE DATA; Schema: public; Owner: sirs
+--
+
+COPY public.sessions (user_id, secret) FROM stdin;
+\.
+
+
+--
+-- Data for Name: submissions; Type: TABLE DATA; Schema: public; Owner: sirs
+--
+
+COPY public.submissions (id, user_id, vuln, bin_id) FROM stdin;
+1	1	a	1
+\.
+
+
+--
+-- Name: accounts_id_seq; Type: SEQUENCE SET; Schema: public; Owner: sirs
+--
+
+SELECT pg_catalog.setval('public.accounts_id_seq', 2, true);
+
+
+--
+-- Name: binaries_id_seq; Type: SEQUENCE SET; Schema: public; Owner: sirs
+--
+
+SELECT pg_catalog.setval('public.binaries_id_seq', 17, true);
+
+
+--
+-- Name: submissions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: sirs
+--
+
+SELECT pg_catalog.setval('public.submissions_id_seq', 10, true);
+
+
+--
 -- Name: accounts accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: sirs
 --
 
@@ -191,6 +292,14 @@ ALTER TABLE ONLY public.accounts
 
 ALTER TABLE ONLY public.accounts
     ADD CONSTRAINT accounts_username_key UNIQUE (username);
+
+
+--
+-- Name: binaries binaries_bin_fp_unique; Type: CONSTRAINT; Schema: public; Owner: sirs
+--
+
+ALTER TABLE ONLY public.binaries
+    ADD CONSTRAINT binaries_bin_fp_unique UNIQUE (bin_fp);
 
 
 --
@@ -215,6 +324,28 @@ ALTER TABLE ONLY public.sessions
 
 ALTER TABLE ONLY public.submissions
     ADD CONSTRAINT submissions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: submissions submissions_vuln_bin_id_unique; Type: CONSTRAINT; Schema: public; Owner: sirs
+--
+
+ALTER TABLE ONLY public.submissions
+    ADD CONSTRAINT submissions_vuln_bin_id_unique UNIQUE (vuln, bin_id);
+
+
+--
+-- Name: submissions remove_points; Type: TRIGGER; Schema: public; Owner: sirs
+--
+
+CREATE TRIGGER remove_points AFTER DELETE ON public.submissions FOR EACH ROW EXECUTE FUNCTION public.remove_points();
+
+
+--
+-- Name: accounts remove_user; Type: TRIGGER; Schema: public; Owner: sirs
+--
+
+CREATE TRIGGER remove_user BEFORE DELETE ON public.accounts FOR EACH ROW EXECUTE FUNCTION public.remove_user();
 
 
 --
