@@ -3,4 +3,4 @@
 `sudo ./server`
 
 #Create Server TLS certificate and key
-`openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 -keyout ssl/server.key -out ssl/server.crt`
+`openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 -keyout ssl/server_tls.key -out ssl/server_tls.crt`

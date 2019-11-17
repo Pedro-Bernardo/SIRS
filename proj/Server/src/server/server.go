@@ -3,57 +3,51 @@ package main
 import (
     "fmt"
     "log"
+    "io/ioutil"
+    "strings"
+    "crypto/rand"
+    "math/big"
     "net/http"
     "crypto/tls"
+    "crypto/x509"
+    "encoding/pem"
     "crypto/rsa"
-    //"crypto/sha256"
+    "crypto/sha256"
     //"crypto/cipher"
     //"crypto/aes"
-    "crypto/rand"
     "encoding/json"
-    "encoding/base64"
+    //"encoding/base64"
 )
 
-type Status int
+// Diffie-Hellman constants
+var G = big.NewInt(23)
+var P = big.NewInt(577)
 
-const (
-    OK Status = iota
-    NOK
-    ADMIN_RESERVED
-)
+// Diffie-Hellman secret values
+var Sc big.Int
+var Ss big.Int
 
-type UserSession struct {
-    Username  string
-    Key  []byte
-    Secret  string
-}
-
-// only saves one for now
-var clientPubKey *rsa.PublicKey
+// Diffie-Hellman keys
+var Ks big.Int
+var Kc big.Int
+var K big.Int
 
 type RegisterRequest struct {
     Username  string `json:"username"`
     Passwd  string `json:"passwd"`
-    ClientPubKey  string `json:"clientPubKey"`
 }
 
 type RegisterResponse struct {
-    HmacSecret  string `json:"hmacSecret"`
-}
-
-type KeygenRequest struct {
-    Username  string `json:"username"`
-    EncryptedUsername  string `json:"encryptedUsername"`
-}
-
-type KeygenResponse struct {
-    Key  []byte `json:"key"`
-    Secret  string `json:"secret"`
+    Status string `json:"status"`
 }
 
 type LoginRequest struct {
-    Username  string `json:"username"`
-    EncryptedPasswd  string `json:"encryptedPasswd"`
+    EncryptedContent  []byte `json:"encryptedContent"`
+}
+
+type LoginResponse struct {
+    DHServerKey  string `json:"dhServerKey"`
+    EncryptedContent  []byte `json:"encryptedContent"`
 }
 
 type SubmitRequest struct {
@@ -61,11 +55,23 @@ type SubmitRequest struct {
     Fingerprint  string `json:"fingerprint"`
 }
 
-type StatusResponse struct {
+type SubmitResponse struct {
     Status  string `json:"status"`
 }
 
-func GenerateRandomBytes(n int) ([]byte, error) {
+type ScoreResponse struct {
+    ScoreList  string `json:"scoreList"`
+}
+
+func GenerateRandomNumber(length int) *big.Int {
+    randInteger, err := rand.Int(rand.Reader, big.NewInt(int64(length)))
+    if err != nil {
+        log.Fatal(err)
+    }
+    return randInteger
+}
+
+/*func GenerateRandomBytes(n int) ([]byte, error) {
 	b := make([]byte, n)
 	_, err := rand.Read(b)
 	if err != nil {
@@ -75,20 +81,53 @@ func GenerateRandomBytes(n int) ([]byte, error) {
 	return b, nil
 }
 
-func GenerateRandom256bitSecret() (string, error) {
-    bytes, err := GenerateRandomBytes(32)
-	return base64.URLEncoding.EncodeToString(bytes), err
+func GenerateRandomSecret(length int) string {
+    bytes, err := GenerateRandomBytes(length)
+    if err != nil {
+		log.Fatal(err)
+    }
+	return base64.URLEncoding.EncodeToString(bytes)
+}*/
+
+func LoadPrivKeyFromFile(filename string) *rsa.PrivateKey {
+    keyString, _ := ioutil.ReadFile(filename)
+    block, _ := pem.Decode([]byte(keyString))
+    parseResult, _ := x509.ParsePKCS8PrivateKey(block.Bytes)
+    privKey := parseResult.(*rsa.PrivateKey)
+    return privKey
 }
 
-/*func DecryptWithPublicKey(ciphertext []byte, pub *rsa.PublicKey) []byte {
-
-	hash := sha256.New()
-	plaintext, err := rsa.DecryptOAEP(hash, rand.Reader, pub, ciphertext, nil)
+func DecryptWithPrivateKey(encryptedMessage []byte, privKey *rsa.PrivateKey) string {
+    hash := sha256.New()
+    plainText, err := rsa.DecryptOAEP(hash, rand.Reader, privKey, encryptedMessage, nil)
 	if err != nil {
-		log.Error(err)
-	}
-	return plaintext
-} */
+		log.Fatal(err)
+    }
+	return string(plainText)
+}
+
+func EncryptWithServerDHKey() {
+
+}
+
+func GenerateDiffieHellmanSecretServerValue() {
+    Ss := GenerateRandomNumber(16)
+    log.Printf("%v", Ss)
+}
+
+func GenerateDiffieHellmanServerKey() {
+    exp := Kc.Exp(G, &Ss, nil)
+    Ks :=  K.Mod(exp, P)
+    //Ks := int(math.Pow(G, float64(Ss))) % P
+    log.Printf("%v", Ks)
+}
+
+func GenerateDiffieHellmanSecretKey() {
+    exp := Kc.Exp(&Kc, &Ss, nil)
+    K :=  K.Mod(exp, P)
+    //K := int(math.Pow(float64(Kc), float64(Ss))) % P
+    log.Printf("%v", K)
+}
 
 func registerHandler(w http.ResponseWriter, r *http.Request) {
     
@@ -104,47 +143,39 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintf(w, "Register")
 }
 
-func keygenHandler(w http.ResponseWriter, r *http.Request) {
-
-    var userRequest KeygenRequest
-    json.NewDecoder(r.Body).Decode(&userRequest)
-
-    log.Printf("keygen request from: %v", userRequest.Username)
-
-    decodedUsername, err := base64.StdEncoding.DecodeString(userRequest.EncryptedUsername)
-    log.Printf("%v", decodedUsername)
-    if err != nil {
-        fmt.Println("decode error:", err)
-		return
-    }
-
-    // TODO falta aqui a parte da base de dados e o que fazer com decodedPasswd
-    
-    w.Header().Set("Content-Type", "application/json")
-    
-    key := []byte("AES256Key-32Characters1234567890")
-    secret, err := GenerateRandom256bitSecret()
-    if err != nil {
-        fmt.Println("generate secret error:", err)
-		return
-    }
-
-    keygenResponse:= KeygenResponse {
-                            Key: key,
-                            Secret: secret}
-    json.NewEncoder(w).Encode(keygenResponse)
-
-    fmt.Fprintf(w, "Keygen")
-}
-
 func loginHandler(w http.ResponseWriter, r *http.Request) {
     log.Printf("login handler")
     var userRequest LoginRequest
     json.NewDecoder(r.Body).Decode(&userRequest)
 
-    log.Printf("login request from: %v", userRequest.Username)
+    decryptedContent := DecryptWithPrivateKey(userRequest.EncryptedContent, LoadPrivKeyFromFile("../../ssl/server_tls.key"))
+    
+    fields := strings.Split(decryptedContent, ",")
+    //username := fields[0]
+    //passwd := fields[1]
+    Kc := fields[2]
+    log.Printf(Kc)
+    log.Printf("login request from: %v", fields[0])
 
     // TODO ver se hash guardada e igual a hash(username + passwd)
+
+    GenerateDiffieHellmanSecretServerValue()
+    GenerateDiffieHellmanServerKey()
+    GenerateDiffieHellmanSecretKey()
+
+    w.Header().Set("Content-Type", "application/json")
+
+    sessionId := GenerateRandomNumber(8)
+
+    content := Ks.Text(10) + "," + sessionId.Text(10)
+    log.Printf(content)
+
+    encryptedContent := []byte("ola")
+
+    response := LoginResponse {
+                            DHServerKey: Ks.Text(10),
+                            EncryptedContent: encryptedContent}
+    json.NewEncoder(w).Encode(response)
 
     fmt.Fprintf(w, "Login")
 }
@@ -187,7 +218,6 @@ func main() {
 
     mux_http_tls := http.NewServeMux()
     mux_http_tls.HandleFunc("/register", registerHandler)
-    mux_http_tls.HandleFunc("/keygen", keygenHandler)
     mux_http_tls.HandleFunc("/admin/remove_user", removeUserHandler)
     mux_http_tls.HandleFunc("/admin/remove_submission", removeSubmissionHandler)
 
@@ -218,7 +248,7 @@ func main() {
     go func() {
         fmt.Println("Serving TLS")
         //log.fatal(server_http_tls.ListenAndServeTLS("../../ssl/server.crt", "../../ssl/server.key"))
-        server_http_tls.ListenAndServeTLS("../../ssl/server.crt", "../../ssl/server.key")
+        server_http_tls.ListenAndServeTLS("../../ssl/server_tls.crt", "../../ssl/server_tls.key")
     }()
 
     <-finish
