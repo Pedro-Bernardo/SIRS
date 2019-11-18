@@ -13,24 +13,27 @@ import (
     "encoding/pem"
     "crypto/rsa"
     "crypto/sha256"
+    "dh_go"
     //"crypto/cipher"
     //"crypto/aes"
     "encoding/json"
     //"encoding/base64"
 )
 
-// Diffie-Hellman constants
-var G = big.NewInt(23)
-var P = big.NewInt(577)
+var dh *dh_go.DH
 
-// Diffie-Hellman secret values
-var Sc big.Int
-var Ss big.Int
+// // Diffie-Hellman constants
+// var G = big.NewInt(23)
+// var P = big.NewInt(577)
 
-// Diffie-Hellman keys
-var Ks big.Int
-var Kc big.Int
-var K big.Int
+// // Diffie-Hellman secret values
+// var Sc big.Int
+// var Ss big.Int
+
+// // Diffie-Hellman keys
+// var Ks big.Int
+// var Kc big.Int
+// var K big.Int
 
 type RegisterRequest struct {
     Username  string `json:"username"`
@@ -110,24 +113,24 @@ func EncryptWithServerDHKey() {
 
 }
 
-func GenerateDiffieHellmanSecretServerValue() {
-    Ss := GenerateRandomNumber(16)
-    log.Printf("%v", Ss)
-}
+// func GenerateDiffieHellmanSecretServerValue() {
+//     Ss := GenerateRandomNumber(16)
+//     log.Printf("%v", Ss)
+// }
 
-func GenerateDiffieHellmanServerKey() {
-    exp := Kc.Exp(G, &Ss, nil)
-    Ks :=  K.Mod(exp, P)
-    //Ks := int(math.Pow(G, float64(Ss))) % P
-    log.Printf("%v", Ks)
-}
+// func GenerateDiffieHellmanServerKey() {
+//     exp := Kc.Exp(G, &Ss, nil)
+//     Ks :=  K.Mod(exp, P)
+//     //Ks := int(math.Pow(G, float64(Ss))) % P
+//     log.Printf("%v", Ks)
+// }
 
-func GenerateDiffieHellmanSecretKey() {
-    exp := Kc.Exp(&Kc, &Ss, nil)
-    K :=  K.Mod(exp, P)
-    //K := int(math.Pow(float64(Kc), float64(Ss))) % P
-    log.Printf("%v", K)
-}
+// func GenerateDiffieHellmanSecretKey() {
+//     exp := Kc.Exp(&Kc, &Ss, nil)
+//     K :=  K.Mod(exp, P)
+//     //K := int(math.Pow(float64(Kc), float64(Ss))) % P
+//     log.Printf("%v", K)
+// }
 
 func registerHandler(w http.ResponseWriter, r *http.Request) {
     
@@ -159,25 +162,31 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
     // TODO ver se hash guardada e igual a hash(username + passwd)
 
-    GenerateDiffieHellmanSecretServerValue()
-    GenerateDiffieHellmanServerKey()
-    GenerateDiffieHellmanSecretKey()
+    // GenerateDiffieHellmanSecretServerValue()
+    // GenerateDiffieHellmanServerKey()
+    // GenerateDiffieHellmanSecretKey()
+
+    dh.GenSecret()
+    dh.CalcPublic()
+    dh.CalcSahredSecret(Kc)
 
     w.Header().Set("Content-Type", "application/json")
 
     sessionId := GenerateRandomNumber(8)
 
-    content := Ks.Text(10) + "," + sessionId.Text(10)
+    content := dh.Public.Text(10) + "," + sessionId.Text(10)
     log.Printf(content)
 
     encryptedContent := []byte("ola")
 
     response := LoginResponse {
-                            DHServerKey: Ks.Text(10),
+                            DHServerKey: dh.Public.Text(10),
                             EncryptedContent: encryptedContent}
     json.NewEncoder(w).Encode(response)
 
-    fmt.Fprintf(w, "Login")
+    log.Printf("secret: %s", dh.Sh_secret)
+
+    // fmt.Fprintf(w, "Login")
 }
 
 func submitHandler(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +217,9 @@ func removeSubmissionHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
     finish := make(chan bool)
+    dh = dh_go.New(
+		"16308619823141802043", 
+		"67698572054823323968190430198898140425166346813366120209767078191542539756243")
     
     mux_http := http.NewServeMux()
     mux_http.HandleFunc("/login", loginHandler)
