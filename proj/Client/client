@@ -27,10 +27,18 @@ class Client:
     SERVER_TLS_CERT = SSL_DIR + 'server_tls.crt'
     CLIENT_PUB_KEY_SUBSTRING = '_public.pem'
     CLIENT_PRIV_KEY_SUBSTRING = '_private.pem'
+    """
+    generate big primes
+    from Crypto.Util import number
+    n_length = 128
+    # generate prime in the order of 2**n_length 
+    primeNum = number.getPrime(n_length) 
+    """
 
     # Diffie-Hellman constants
-    G = 23
-    P = 577
+    G = 16308619823141802043
+    P = 67698572054823323968190430198898140425166346813366120209767078191542539756243
+    # P = 137107582757175698770717454412245801822880987412056810011630034635311728845863360414226149634509215229761633670329211458649575623639268672553200337399194406650756924289847497941176898119552142893337098481981428687987824042031956469715267802308168423966432241527893292376814976597763350723121374845794843670621
 
     # Diffie-Hellman secret values
     # Sc - client secret value
@@ -67,12 +75,14 @@ class Client:
         conn.request(method, endpoint, json_data, headers)
 
         response = conn.getresponse()
-        print("Server http response: {}".format(response.read().decode()))
+        response = response.read().decode()
+        print("Server http response: {}".format(response))
 
-        return response
+        return json.loads(response)
 
     def encrypt_with_server_pub_key(self, message):
         # change to SERVER_CERT
+        # TODO: add code to validate server.crt against CA
         with open(self.SERVER_TLS_CERT, "r") as server_cert_file:
             server_cert_txt = server_cert_file.read()
         server_cert = load_certificate(FILETYPE_PEM, server_cert_txt)
@@ -87,13 +97,13 @@ class Client:
                                      label=None))).decode('latin-1')
 
     def generate_diffie_hellman_secret_client_value(self):
-        self.Sc = randbits(16)
+        self.Sc = randbits(256)
 
     def generate_diffie_hellman_client_key(self):
-        self.Kc = (self.G**self.Sc) % self.P
+        self.Kc = pow(self.G, self.Sc, self.P)
 
     def generate_diffie_hellman_secret_key(self):
-        self.K = (self.Ks**self.Sc) % self.P
+        self.K = pow(self.Ks, self.Sc, self.P)
 
     # /register
     def register(self):
@@ -130,11 +140,18 @@ class Client:
         json_data = json.dumps(foo)
 
         response = self.create_http_connection('POST', '/login', json_data)
-        """json_response = json.dumps(response)
-        self.Ks = json_response['dhServerKey']
-        encrypted_content = json_response['encryptedContent']
+        print("dhServerKey: {}".format(response['dhServerKey']))
+        
+        self.Ks = int(response['dhServerKey'])
+        self.generate_diffie_hellman_secret_key()
+        print("secret: {}".format(self.K))
 
-        print('ks: {} \n encrypted_content: {}'.format(self.Ks, encrypted_content))"""
+        # json_response = json.dumps(response)
+        # print(json_response)
+        # self.Ks = json_response['dhServerKey']
+        # encrypted_content = json_response['encryptedContent']
+
+        # print('ks: {} \n encrypted_content: {}'.format(self.Ks, encrypted_content))
 
     # /submit
     def submit(self, vuln_description, fingerprint):
@@ -213,6 +230,8 @@ def main():
     elif args.command.__eq__('score'):
         client.score()
 
+
+    
 
 if __name__ == "__main__":
     main()
