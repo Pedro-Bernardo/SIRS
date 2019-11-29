@@ -10,6 +10,10 @@ import json
 # generate secure random numbers
 from secrets import randbits
 
+from Crypto.PublicKey import RSA
+from Crypto.Signature import pkcs1_15
+from Crypto.Hash import SHA256
+
 from OpenSSL.crypto import (load_certificate, load_publickey, load_privatekey, dump_certificate, X509, X509Name, PKey)
 from OpenSSL.crypto import (TYPE_RSA, FILETYPE_PEM, FILETYPE_ASN1 )
 
@@ -17,6 +21,9 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 from base64 import b64encode, b64decode, encodebytes
+
+import hmac
+import hashlib
 
 
 class Client:
@@ -27,13 +34,6 @@ class Client:
     SERVER_TLS_CERT = SSL_DIR + 'server_tls.crt'
     CLIENT_PUB_KEY_SUBSTRING = '_public.pem'
     CLIENT_PRIV_KEY_SUBSTRING = '_private.pem'
-    """
-    generate big primes
-    from Crypto.Util import number
-    n_length = 128
-    # generate prime in the order of 2**n_length 
-    primeNum = number.getPrime(n_length) 
-    """
 
     # Diffie-Hellman constants
     G = 16308619823141802043
@@ -43,7 +43,6 @@ class Client:
     # Diffie-Hellman secret values
     # Sc - client secret value
     Sc = None
-    # Ss - server secret value
 
     # Diffie-Hellman keys
     # Kc - client key
@@ -96,6 +95,38 @@ class Client:
                                      algorithm=hashes.SHA256(),
                                      label=None))).decode('latin-1')
 
+    def hash_with_sha256_to_string(self, message):
+        hashed_message = hashlib.sha256(message.encode())
+        return hashed_message.hexdigest()
+
+    def hash_with_sha256(self, message):
+        return hashlib.sha256(message.encode())
+
+    def hmac_maker(self, hashed_passwd, encrypted_message):
+        # hmac secret is hash(passwd)
+        # hashed_passwd should be byte array and not str
+        print("hashed_passwd type: {}".format(type(hashed_passwd)))
+        print("hashed_passwd: {}".format(hashed_passwd))
+        digest_maker = hmac.new(hashed_passwd.encode(), encrypted_message.encode(), hashlib.sha256)
+        return digest_maker.hexdigest()
+
+    """def sign_with_client_priv_key(self, username, hmac_message):
+        with open(self.SSL_DIR + username + self.CLIENT_PRIV_KEY_SUBSTRING, "r") as priv_key_file:
+            private_key = RSA.importKey(priv_key_file.read())
+
+        signer = PKCS1_v1_5.new(private_key)
+
+        #return signer.sign(self.hash_with_sha256(digest))
+        return signer.sign(self.hash_with_sha256(hmac_message))"""
+
+    def sign_with_client_priv_key(self, username, hmac_message):
+        with open(self.SSL_DIR + username + self.CLIENT_PRIV_KEY_SUBSTRING, "r") as priv_key_file:
+            private_key = RSA.importKey(priv_key_file.read())
+
+        hashed_hmac = SHA256.new(hmac_message.encode())
+
+        return pkcs1_15.new(private_key).sign(hashed_hmac)
+
     def generate_diffie_hellman_secret_client_value(self):
         self.Sc = randbits(256)
 
@@ -104,6 +135,23 @@ class Client:
 
     def generate_diffie_hellman_secret_key(self):
         self.K = pow(self.Ks, self.Sc, self.P)
+
+    #def decrypt_with_dh_symmetric_key(self, encrypted_message):
+
+
+    def generate_key_pair(self, username):
+        client_pub_key_path = self.SSL_DIR + username + self.CLIENT_PUB_KEY_SUBSTRING
+        client_priv_key_path = self.SSL_DIR + username + self.CLIENT_PRIV_KEY_SUBSTRING
+
+        key = RSA.generate(2048)
+        f = open(client_priv_key_path, "wb")
+        f.write(key.exportKey('PEM'))
+        f.close()
+
+        pubkey = key.publickey()
+        f = open(client_pub_key_path, "wb")
+        f.write(pubkey.exportKey('PEM'))
+        f.close()
 
     # /register
     def register(self):
@@ -118,7 +166,19 @@ class Client:
         passwd_rep = getpass.getpass('repeat password: ')
 
         if passwd.__eq__(passwd_rep):
-            foo = {'username': username, 'passwd': passwd}
+            self.generate_key_pair(username)
+            # can we send pub key through tls ???????????
+
+            hashed_passwd = self.hash_with_sha256_to_string(passwd)
+            with open(self.SSL_DIR + username + self.CLIENT_PUB_KEY_SUBSTRING, "r") as pub_key_file:
+                #public_key = RSA.importKey(pub_key_file.read())
+                pub_key_text = pub_key_file.read()
+                print("key text: {}".format(pub_key_text))
+            json_encoded_public_key = b64encode(pub_key_text.encode()).decode()
+            print("key encoded: {}".format(json_encoded_public_key))
+            foo = {'username': username,
+                   'hashedPasswd': hashed_passwd,
+                   'publicKey': json_encoded_public_key}
             json_data = json.dumps(foo)
             self.create_http_tls_connection('POST', '/register', json_data)
         else:
@@ -134,24 +194,35 @@ class Client:
         self.generate_diffie_hellman_secret_client_value()
         self.generate_diffie_hellman_client_key()
 
-        content = username + ',' + passwd + ',' + str(self.Kc)
-        # Cserver,pub { username, passwd, Sc }
-        foo = {'encryptedContent': self.encrypt_with_server_pub_key(content)}
+        hashed_passwd = self.hash_with_sha256_to_string(passwd)
+
+        # passwd or hash(password) ??????
+        content = username + ',' + hashed_passwd + ',' + str(self.Kc)
+        encrypted_content = self.encrypt_with_server_pub_key(content)
+
+        # Sign(HMAC)
+        hmac_integrity = self.hmac_maker(hashed_passwd, encrypted_content)
+        signature = self.sign_with_client_priv_key(username, hmac_integrity)
+
+        foo = {'signature': b64encode(signature).decode(),
+               'hmac': hmac_integrity,
+               'encryptedContent': self.encrypt_with_server_pub_key(content)}
         json_data = json.dumps(foo)
 
-        response = self.create_http_connection('POST', '/login', json_data)
-        print("dhServerKey: {}".format(response['dhServerKey']))
-        
+        self.create_http_connection('POST', '/login', json_data)
+        #response = self.create_http_connection('POST', '/login', json_data)
+        #print("dhServerKey: {}".format(response['dhServerKey']))
+
+        # process to generate key for client to encrypt following request message
         self.Ks = int(response['dhServerKey'])
         self.generate_diffie_hellman_secret_key()
         print("secret: {}".format(self.K))
 
-        # json_response = json.dumps(response)
-        # print(json_response)
-        # self.Ks = json_response['dhServerKey']
-        # encrypted_content = json_response['encryptedContent']
-
-        # print('ks: {} \n encrypted_content: {}'.format(self.Ks, encrypted_content))
+        json_response = json.dumps(response)
+        print(json_response)
+        self.Ks = json_response['dhServerKey']
+        encrypted_content = json_response['encryptedContent']
+        print('ks: {} \n encrypted_content: {}'.format(self.Ks, encrypted_content))
 
     # /submit
     def submit(self, vuln_description, fingerprint):

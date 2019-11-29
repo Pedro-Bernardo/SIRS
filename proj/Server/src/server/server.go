@@ -4,6 +4,7 @@ import (
     "fmt"
     "log"
     "io/ioutil"
+    "io"
     "strings"
     "crypto/rand"
     "math/big"
@@ -13,31 +14,26 @@ import (
     "encoding/pem"
     "crypto/rsa"
     "crypto/sha256"
+    "crypto/hmac"
     "dh_go"
-    //"crypto/cipher"
-    //"crypto/aes"
+    "crypto"
+    "crypto/cipher"
+    "crypto/aes"
+    "encoding/hex"
     "encoding/json"
-    //"encoding/base64"
+    "encoding/base64"
+
+    //_ "github.com/alexellis/hmac"
 )
 
 var dh *dh_go.DH
 
-// // Diffie-Hellman constants
-// var G = big.NewInt(23)
-// var P = big.NewInt(577)
-
-// // Diffie-Hellman secret values
-// var Sc big.Int
-// var Ss big.Int
-
-// // Diffie-Hellman keys
-// var Ks big.Int
-// var Kc big.Int
-// var K big.Int
+var userKey *rsa.PublicKey
 
 type RegisterRequest struct {
     Username  string `json:"username"`
-    Passwd  string `json:"passwd"`
+    HashedPasswd  string `json:"hashedPasswd"`
+    PublicKey  string `json:"publicKey"`
 }
 
 type RegisterResponse struct {
@@ -45,12 +41,14 @@ type RegisterResponse struct {
 }
 
 type LoginRequest struct {
+    Signature  []byte `json:"Signature"` 
+    Hmac  []byte `json:"hmac"`
     EncryptedContent  []byte `json:"encryptedContent"`
 }
 
 type LoginResponse struct {
     DHServerKey  string `json:"dhServerKey"`
-    EncryptedContent  []byte `json:"encryptedContent"`
+    EncryptedContent  string `json:"encryptedContent"`
 }
 
 type SubmitRequest struct {
@@ -74,30 +72,33 @@ func GenerateRandomNumber(length int) *big.Int {
     return randInteger
 }
 
-/*func GenerateRandomBytes(n int) ([]byte, error) {
-	b := make([]byte, n)
-	_, err := rand.Read(b)
-	if err != nil {
-		return nil, err
-	}
-
-	return b, nil
-}
-
-func GenerateRandomSecret(length int) string {
-    bytes, err := GenerateRandomBytes(length)
-    if err != nil {
-		log.Fatal(err)
-    }
-	return base64.URLEncoding.EncodeToString(bytes)
-}*/
-
 func LoadPrivKeyFromFile(filename string) *rsa.PrivateKey {
     keyString, _ := ioutil.ReadFile(filename)
     block, _ := pem.Decode([]byte(keyString))
     parseResult, _ := x509.ParsePKCS8PrivateKey(block.Bytes)
     privKey := parseResult.(*rsa.PrivateKey)
     return privKey
+}
+
+/*func LoadClientPubKeyFromDatabase(username string) *rsa.PublicKey {
+    // obtain keytext from database
+
+    parseResult, _ := x509.ParsePKCS8PrivateKey(block.Bytes)
+    publicKey := parseResult.(*rsa.PublicKey)
+}*/
+
+func LoadClientPubKeyFromDatabase(block []byte) *rsa.PublicKey {
+    publicPem, _ := pem.Decode(block)
+    if publicPem == nil {
+		log.Fatal("Client's public key is not in pem format")
+    }
+    parseResult, parseErr := x509.ParsePKIXPublicKey(publicPem.Bytes)
+    if parseErr != nil {
+		log.Fatal(parseErr)
+    }
+    publicKey := parseResult.(*rsa.PublicKey)
+
+    return publicKey
 }
 
 func DecryptWithPrivateKey(encryptedMessage []byte, privKey *rsa.PrivateKey) string {
@@ -109,38 +110,69 @@ func DecryptWithPrivateKey(encryptedMessage []byte, privKey *rsa.PrivateKey) str
 	return string(plainText)
 }
 
-func EncryptWithServerDHKey() {
+// using symmetric key generated (size = 256)
+func EncryptWithDHKey(message string) string {
+    //cipher, err := aes.NewCipher(dh.Sh_secret.Bytes())
+    keyBlock, err := aes.NewCipher(dh.Sh_secret.Bytes())
+    if err != nil {
+		log.Fatal(err)
+    }
+    // The IV needs to be unique, but not secure. Therefore it's common to
+	// include it at the beginning of the ciphertext
+    buffer := make([]byte, aes.BlockSize + len(message))
+    iv := buffer[:aes.BlockSize]
+    if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		log.Fatal(err)
+    }
+    
+    mode := cipher.NewCBCEncrypter(keyBlock, iv)
+	mode.CryptBlocks(buffer[aes.BlockSize:], []byte(message))
 
+    return hex.EncodeToString(buffer)
 }
 
-// func GenerateDiffieHellmanSecretServerValue() {
-//     Ss := GenerateRandomNumber(16)
-//     log.Printf("%v", Ss)
-// }
+//func VerifyClientSignature(username string, hashedPasswd []byte, hmac []byte, signature []byte) {
+func VerifyClientSignature(hashedPasswd []byte, hmac []byte, signature []byte) {
+    // load client's public key from database and parse into key
 
-// func GenerateDiffieHellmanServerKey() {
-//     exp := Kc.Exp(G, &Ss, nil)
-//     Ks :=  K.Mod(exp, P)
-//     //Ks := int(math.Pow(G, float64(Ss))) % P
-//     log.Printf("%v", Ks)
-// }
+    //publicKey := LoadClientPubKeyFromDatabase(username)
 
-// func GenerateDiffieHellmanSecretKey() {
-//     exp := Kc.Exp(&Kc, &Ss, nil)
-//     K :=  K.Mod(exp, P)
-//     //K := int(math.Pow(float64(Kc), float64(Ss))) % P
-//     log.Printf("%v", K)
-// }
+    hashedHmac := sha256.Sum256(hmac)
+    //verifyErr := rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hashedHmac[:], signature)
+    verifyErr := rsa.VerifyPKCS1v15(userKey, crypto.SHA256, hashedHmac[:], signature)
+    if verifyErr != nil {
+        log.Fatal(verifyErr)
+    }
+}
+
+func CheckMessageIntegrity(messageHmac []byte, encryptedMessage []byte, hashedPasswd []byte) {
+    // does the hmac of the encrypted message content received to check if the hmac's the same in the signature
+    hasherHmac := hmac.New(sha256.New, hashedPasswd)
+    hasherHmac.Write(encryptedMessage)
+    expectedHmac := hasherHmac.Sum(nil)
+
+    integrityChecks := hmac.Equal(messageHmac, expectedHmac)
+    if (integrityChecks == false) {
+        log.Fatal("Integrity violated!")
+    }
+}
 
 func registerHandler(w http.ResponseWriter, r *http.Request) {
     
     var userRequest RegisterRequest
     json.NewDecoder(r.Body).Decode(&userRequest)
 
+    decodedPublicKey, err := base64.StdEncoding.DecodeString(userRequest.PublicKey)
+    if err != nil {
+		log.Fatal(err)
+	}
+    userKey = LoadClientPubKeyFromDatabase(decodedPublicKey)
+
     log.Printf("register request from: %v", userRequest.Username)
 
     // TODO falta aqui a parte da base de dados: guardar user data
-
+    // CHANGE DATABASE TO KEEP USER PUBLIC KEY????
+    //addUser(userRequest.Username, userRequest.HashedPasswd, userRequest.PublicKey)
 
     //fmt.Fprintf(w, "Request body: %+v", ur.Username)
     fmt.Fprintf(w, "Register")
@@ -155,16 +187,14 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     
     fields := strings.Split(decryptedContent, ",")
     //username := fields[0]
-    //passwd := fields[1]
+    hashedPasswd := fields[1]
     Kc := fields[2]
     log.Printf(Kc)
     log.Printf("login request from: %v", fields[0])
 
-    // TODO ver se hash guardada e igual a hash(username + passwd)
-
-    // GenerateDiffieHellmanSecretServerValue()
-    // GenerateDiffieHellmanServerKey()
-    // GenerateDiffieHellmanSecretKey()
+    CheckMessageIntegrity(userRequest.Hmac, userRequest.EncryptedContent, []byte(hashedPasswd))
+    //VerifyClientSignature(username, []byte(hashedPasswd),userRequest.Hmac, userRequest.Signature)
+    VerifyClientSignature([]byte(hashedPasswd),userRequest.Hmac, userRequest.Signature)
 
     dh.GenSecret()
     dh.CalcPublic()
@@ -177,16 +207,14 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     content := dh.Public.Text(10) + "," + sessionId.Text(10)
     log.Printf(content)
 
-    encryptedContent := []byte("ola")
+    encryptedContent := EncryptWithDHKey(content)
 
     response := LoginResponse {
                             DHServerKey: dh.Public.Text(10),
                             EncryptedContent: encryptedContent}
     json.NewEncoder(w).Encode(response)
 
-    log.Printf("secret: %s", dh.Sh_secret)
-
-    // fmt.Fprintf(w, "Login")
+    fmt.Fprintf(w, "Login")
 }
 
 func submitHandler(w http.ResponseWriter, r *http.Request) {
