@@ -1,4 +1,4 @@
-# USAGE:
+# USAGE
   
   
   For these steps run as postgres user
