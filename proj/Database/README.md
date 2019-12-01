@@ -10,7 +10,7 @@
   3) Create schema : psql -h < ip > -U < username > < dbname > -c < create_the_tables.sql
   
   ===================
-# TODO: implente sslmode=verify-full
+# TODO: implement sslmode=verify-full
 
 # SSL=VERIFY-FULL
 
