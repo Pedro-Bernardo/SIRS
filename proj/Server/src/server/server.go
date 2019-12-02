@@ -41,8 +41,8 @@ type RegisterResponse struct {
 }
 
 type LoginRequest struct {
-    Signature  []byte `json:"Signature"` 
-    Hmac  []byte `json:"hmac"`
+    Signature  string `json:"Signature"` 
+    Hmac  string `json:"hmac"`
     EncryptedContent  []byte `json:"encryptedContent"`
 }
 
@@ -80,6 +80,15 @@ func LoadPrivKeyFromFile(filename string) *rsa.PrivateKey {
     return privKey
 }
 
+func LoadPubKeyFromFile(filename string) *rsa.PublicKey {
+    keyString, _ := ioutil.ReadFile(filename)
+    block, _ := pem.Decode([]byte(keyString))
+    var cert* x509.Certificate
+    cert, _ = x509.ParseCertificate(block.Bytes)
+    pubKey := cert.PublicKey.(*rsa.PublicKey)
+    return pubKey
+}
+
 /*func LoadClientPubKeyFromDatabase(username string) *rsa.PublicKey {
     // obtain keytext from database
 
@@ -102,8 +111,22 @@ func LoadClientPubKeyFromDatabase(block []byte) *rsa.PublicKey {
 }
 
 func DecryptWithPrivateKey(encryptedMessage []byte, privKey *rsa.PrivateKey) string {
+    log.Println("DecryptWithPrivateKey")
     hash := sha256.New()
+    log.Println("hash done")
+    /*
+    publicKey := LoadPubKeyFromFile("../../ssl/server_tls.crt")
+    
+    log.Println("after getting public key")
+
+    content := "as,f4bf9f7fcbedaba0392f108c59d8f4a38b3838efb64877380171b54475c2ade8,43605213990907437119360750126973250176164454042249042287736004320420075268620"
+    encryptedContent, err := rsa.EncryptOAEP(hash, rand.Reader, publicKey, []byte(content), nil)
+    if err != nil {
+		log.Fatal(err)
+    }*/
+    //plainText, err := rsa.DecryptPKCS1v15(rand.Reader, privKey, encryptedMessage)
     plainText, err := rsa.DecryptOAEP(hash, rand.Reader, privKey, encryptedMessage, nil)
+    //plainText, err := rsa.DecryptOAEP(hash, rand.Reader, privKey, encryptedContent, nil)
 	if err != nil {
 		log.Fatal(err)
     }
@@ -155,12 +178,15 @@ func CheckMessageIntegrity(messageHmac []byte, encryptedMessage []byte, hashedPa
     if (integrityChecks == false) {
         log.Fatal("Integrity violated!")
     }
+    log.Printf("Message integrity checked!")
 }
 
 func registerHandler(w http.ResponseWriter, r *http.Request) {
     
     var userRequest RegisterRequest
     json.NewDecoder(r.Body).Decode(&userRequest)
+
+    log.Printf("pub key undecoded: %v", userRequest.PublicKey)
 
     decodedPublicKey, err := base64.StdEncoding.DecodeString(userRequest.PublicKey)
     if err != nil {
@@ -183,18 +209,30 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     var userRequest LoginRequest
     json.NewDecoder(r.Body).Decode(&userRequest)
 
+    signature := userRequest.Signature
+    log.Printf("signature: %v\n", signature)
+    signatureBytes := []byte(userRequest.Signature)
+    hmacIntegrity := userRequest.Hmac
+    log.Printf("hmac: %v\n", hmacIntegrity)
+    hmacBytes := []byte(userRequest.Hmac)
+    //encryptedContentBytes := []byte(userRequest.EncryptedContent)
+    log.Printf("encrypted content: %v\n", userRequest.EncryptedContent)
+    log.Printf("encrypted content string: %v\n", string(userRequest.EncryptedContent))
+
     decryptedContent := DecryptWithPrivateKey(userRequest.EncryptedContent, LoadPrivKeyFromFile("../../ssl/server_tls.key"))
+    log.Printf("decrypted content: %v\n", decryptedContent)
     
     fields := strings.Split(decryptedContent, ",")
     //username := fields[0]
     hashedPasswd := fields[1]
+    hashedPasswdBytes := []byte(hashedPasswd)
     Kc := fields[2]
     log.Printf(Kc)
     log.Printf("login request from: %v", fields[0])
 
-    CheckMessageIntegrity(userRequest.Hmac, userRequest.EncryptedContent, []byte(hashedPasswd))
+    CheckMessageIntegrity(hmacBytes, userRequest.EncryptedContent, hashedPasswdBytes)
     //VerifyClientSignature(username, []byte(hashedPasswd),userRequest.Hmac, userRequest.Signature)
-    VerifyClientSignature([]byte(hashedPasswd),userRequest.Hmac, userRequest.Signature)
+    VerifyClientSignature(hashedPasswdBytes, hmacBytes, signatureBytes)
 
     dh.GenSecret()
     dh.CalcPublic()

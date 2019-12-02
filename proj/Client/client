@@ -89,11 +89,11 @@ class Client:
         server_pub_key = server_cert.get_pubkey().to_cryptography_key()
 
         # Optimal Asymmetric Encryption Padding (OAEP)
-        return b64encode(server_pub_key.encrypt(
-                        message.encode('latin-1'),
+        return server_pub_key.encrypt(
+                        message.encode('latin-1'),# ISO-8859-1
                         padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
                                      algorithm=hashes.SHA256(),
-                                     label=None))).decode('latin-1')
+                                     label=None))
 
     def hash_with_sha256_to_string(self, message):
         hashed_message = hashlib.sha256(message.encode())
@@ -105,9 +105,8 @@ class Client:
     def hmac_maker(self, hashed_passwd, encrypted_message):
         # hmac secret is hash(passwd)
         # hashed_passwd should be byte array and not str
-        print("hashed_passwd type: {}".format(type(hashed_passwd)))
         print("hashed_passwd: {}".format(hashed_passwd))
-        digest_maker = hmac.new(hashed_passwd.encode(), encrypted_message.encode(), hashlib.sha256)
+        digest_maker = hmac.new(hashed_passwd.encode(), encrypted_message, hashlib.sha256)
         return digest_maker.hexdigest()
 
     """def sign_with_client_priv_key(self, username, hmac_message):
@@ -203,10 +202,19 @@ class Client:
         # Sign(HMAC)
         hmac_integrity = self.hmac_maker(hashed_passwd, encrypted_content)
         signature = self.sign_with_client_priv_key(username, hmac_integrity)
+        encoded_signature = b64encode(signature).decode()
 
-        foo = {'signature': b64encode(signature).decode(),
+        print("signature: {}".format(encoded_signature))
+        print("hmac: {}".format(hmac_integrity))
+        print("content: {}".format(content))
+        print("encrypted content: {}".format(encrypted_content))
+        encrypted_content_decoded = encrypted_content.decode('latin-1')
+        print("encrypted content decoded: {}".format(encrypted_content_decoded))
+        encoded_encrypted_content = b64encode(encrypted_content).decode('latin-1')
+        print("encoded encrypted content: {}".format(encoded_encrypted_content))
+        foo = {'signature': encoded_signature,
                'hmac': hmac_integrity,
-               'encryptedContent': self.encrypt_with_server_pub_key(content)}
+               'encryptedContent': encoded_encrypted_content}
         json_data = json.dumps(foo)
 
         self.create_http_connection('POST', '/login', json_data)
