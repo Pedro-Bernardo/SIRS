@@ -106,6 +106,7 @@ class Client:
         # hmac secret is hash(passwd)
         # hashed_passwd should be byte array and not str
         print("hashed_passwd: {}".format(hashed_passwd))
+        print("hamc_encrypted_message: {}".format(encrypted_message))
         digest_maker = hmac.new(hashed_passwd.encode(), encrypted_message, hashlib.sha256)
         return digest_maker.hexdigest()
 

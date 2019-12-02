@@ -173,8 +173,14 @@ func CheckMessageIntegrity(messageHmac []byte, encryptedMessage []byte, hashedPa
     hasherHmac := hmac.New(sha256.New, hashedPasswd)
     hasherHmac.Write(encryptedMessage)
     expectedHmac := hasherHmac.Sum(nil)
+    encodedExpectedHmac := hex.EncodeToString(expectedHmac)
+    log.Printf("hex hmac: %v", hex.EncodeToString(expectedHmac))
+    log.Printf("hex hmac2: %v", hex.EncodeToString(messageHmac))
 
-    integrityChecks := hmac.Equal(messageHmac, expectedHmac)
+    log.Printf("expected hmac: %v", expectedHmac)
+    log.Printf("message hmac: %v", string(messageHmac))
+
+    integrityChecks := hmac.Equal(messageHmac, []byte(encodedExpectedHmac))
     if (integrityChecks == false) {
         log.Fatal("Integrity violated!")
     }
@@ -214,6 +220,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     signatureBytes := []byte(userRequest.Signature)
     hmacIntegrity := userRequest.Hmac
     log.Printf("hmac: %v\n", hmacIntegrity)
+
     hmacBytes := []byte(userRequest.Hmac)
     //encryptedContentBytes := []byte(userRequest.EncryptedContent)
     log.Printf("encrypted content: %v\n", userRequest.EncryptedContent)
