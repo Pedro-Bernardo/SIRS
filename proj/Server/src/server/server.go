@@ -160,12 +160,17 @@ func VerifyClientSignature(hashedPasswd []byte, hmac []byte, signature []byte) {
 
     //publicKey := LoadClientPubKeyFromDatabase(username)
 
-    hashedHmac := sha256.Sum256(hmac)
+    log.Printf("hmac %v", string(hmac));
+    encodedExpectedHmac := hex.EncodeToString(hmac);
+    log.Printf("encodedExpectedHmac %v", encodedExpectedHmac);
+    hashedHmac := sha256.Sum256([]byte(encodedExpectedHmac));
+    log.Printf("hashedhmac %v", hashedHmac[:]);
     //verifyErr := rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hashedHmac[:], signature)
-    verifyErr := rsa.VerifyPKCS1v15(userKey, crypto.SHA256, hashedHmac[:], signature)
+    verifyErr := rsa.VerifyPSS(userKey, crypto.SHA256, hashedHmac[:], signature, nil)
     if verifyErr != nil {
         log.Fatal(verifyErr)
     }
+    log.Printf("Message signature verified!")
 }
 
 func CheckMessageIntegrity(messageHmac []byte, encryptedMessage []byte, hashedPasswd []byte) {
@@ -174,11 +179,6 @@ func CheckMessageIntegrity(messageHmac []byte, encryptedMessage []byte, hashedPa
     hasherHmac.Write(encryptedMessage)
     expectedHmac := hasherHmac.Sum(nil)
     encodedExpectedHmac := hex.EncodeToString(expectedHmac)
-    log.Printf("hex hmac: %v", hex.EncodeToString(expectedHmac))
-    log.Printf("hex hmac2: %v", hex.EncodeToString(messageHmac))
-
-    log.Printf("expected hmac: %v", expectedHmac)
-    log.Printf("message hmac: %v", string(messageHmac))
 
     integrityChecks := hmac.Equal(messageHmac, []byte(encodedExpectedHmac))
     if (integrityChecks == false) {
@@ -191,8 +191,6 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     
     var userRequest RegisterRequest
     json.NewDecoder(r.Body).Decode(&userRequest)
-
-    log.Printf("pub key undecoded: %v", userRequest.PublicKey)
 
     decodedPublicKey, err := base64.StdEncoding.DecodeString(userRequest.PublicKey)
     if err != nil {
@@ -211,23 +209,15 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-    log.Printf("login handler")
+
     var userRequest LoginRequest
     json.NewDecoder(r.Body).Decode(&userRequest)
 
-    signature := userRequest.Signature
-    log.Printf("signature: %v\n", signature)
     signatureBytes := []byte(userRequest.Signature)
-    hmacIntegrity := userRequest.Hmac
-    log.Printf("hmac: %v\n", hmacIntegrity)
 
     hmacBytes := []byte(userRequest.Hmac)
-    //encryptedContentBytes := []byte(userRequest.EncryptedContent)
-    log.Printf("encrypted content: %v\n", userRequest.EncryptedContent)
-    log.Printf("encrypted content string: %v\n", string(userRequest.EncryptedContent))
 
     decryptedContent := DecryptWithPrivateKey(userRequest.EncryptedContent, LoadPrivKeyFromFile("../../ssl/server_tls.key"))
-    log.Printf("decrypted content: %v\n", decryptedContent)
     
     fields := strings.Split(decryptedContent, ",")
     //username := fields[0]

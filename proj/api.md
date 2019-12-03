@@ -14,7 +14,8 @@
 { username=user1, content="asdxfscgasvfhgzcasjk"}
 
 ## /keygen
-- POST over TLS {username=user1, token=Cpk{pass}}
+- POST over TLS {username=user1, token=Cspubk{passwd}}
+tamanho da pass pode ser um problema?
 - POST response {key:AES256-key1, secret:256-bit secret}
 
 servidor mantem tabela:
@@ -30,7 +31,8 @@ secret usado para HMAC
 key para cifrar pedidos HTTP
 
 ## /register
-- POST over TLS {username, password, PK(RSA)}
+- POST over TLS {username, password, CPubKey}
+servidor pode ter acesso a dados sensiveis em plaintext?
 
 ## /login
 - POST {user='usr', password='passwd'}

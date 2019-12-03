@@ -11,7 +11,7 @@ import json
 from secrets import randbits
 
 from Crypto.PublicKey import RSA
-from Crypto.Signature import pkcs1_15
+from Crypto.Signature import PKCS1_PSS
 from Crypto.Hash import SHA256
 
 from OpenSSL.crypto import (load_certificate, load_publickey, load_privatekey, dump_certificate, X509, X509Name, PKey)
@@ -99,14 +99,12 @@ class Client:
         hashed_message = hashlib.sha256(message.encode())
         return hashed_message.hexdigest()
 
-    def hash_with_sha256(self, message):
-        return hashlib.sha256(message.encode())
+    """def hash_with_sha256(self, message):
+        return hashlib.sha256(message.encode())"""
 
     def hmac_maker(self, hashed_passwd, encrypted_message):
         # hmac secret is hash(passwd)
         # hashed_passwd should be byte array and not str
-        print("hashed_passwd: {}".format(hashed_passwd))
-        print("hamc_encrypted_message: {}".format(encrypted_message))
         digest_maker = hmac.new(hashed_passwd.encode(), encrypted_message, hashlib.sha256)
         return digest_maker.hexdigest()
 
@@ -122,10 +120,14 @@ class Client:
     def sign_with_client_priv_key(self, username, hmac_message):
         with open(self.SSL_DIR + username + self.CLIENT_PRIV_KEY_SUBSTRING, "r") as priv_key_file:
             private_key = RSA.importKey(priv_key_file.read())
+        print("hmac {}".format(hmac_message))
+        encoded_hmac = hmac_message.encode()
+        #hashed_hmac = SHA256.new(encoded_hmac)
+        hashed_hmac = SHA256.new()
+        hashed_hmac.update(encoded_hmac)
+        print("hashed hmac {}".format(hashed_hmac.hexdigest().encode()))
 
-        hashed_hmac = SHA256.new(hmac_message.encode())
-
-        return pkcs1_15.new(private_key).sign(hashed_hmac)
+        return PKCS1_PSS.new(private_key).sign(hashed_hmac)
 
     def generate_diffie_hellman_secret_client_value(self):
         self.Sc = randbits(256)
@@ -173,9 +175,9 @@ class Client:
             with open(self.SSL_DIR + username + self.CLIENT_PUB_KEY_SUBSTRING, "r") as pub_key_file:
                 #public_key = RSA.importKey(pub_key_file.read())
                 pub_key_text = pub_key_file.read()
-                print("key text: {}".format(pub_key_text))
+
             json_encoded_public_key = b64encode(pub_key_text.encode()).decode()
-            print("key encoded: {}".format(json_encoded_public_key))
+
             foo = {'username': username,
                    'hashedPasswd': hashed_passwd,
                    'publicKey': json_encoded_public_key}
@@ -204,15 +206,8 @@ class Client:
         hmac_integrity = self.hmac_maker(hashed_passwd, encrypted_content)
         signature = self.sign_with_client_priv_key(username, hmac_integrity)
         encoded_signature = b64encode(signature).decode()
-
-        print("signature: {}".format(encoded_signature))
-        print("hmac: {}".format(hmac_integrity))
-        print("content: {}".format(content))
-        print("encrypted content: {}".format(encrypted_content))
-        encrypted_content_decoded = encrypted_content.decode('latin-1')
-        print("encrypted content decoded: {}".format(encrypted_content_decoded))
         encoded_encrypted_content = b64encode(encrypted_content).decode('latin-1')
-        print("encoded encrypted content: {}".format(encoded_encrypted_content))
+
         foo = {'signature': encoded_signature,
                'hmac': hmac_integrity,
                'encryptedContent': encoded_encrypted_content}
