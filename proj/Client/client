@@ -52,6 +52,9 @@ class Client:
     # K - key secret value
     K = None
 
+    server_iv = None
+    client_iv = None
+
     def create_http_tls_connection(self, method, endpoint, json_data):
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=self.SERVER_TLS_CERT)
         # check if hostname == CA
@@ -120,6 +123,13 @@ class Client:
     def sign_with_client_priv_key(self, username, hmac_message):
         with open(self.SSL_DIR + username + self.CLIENT_PRIV_KEY_SUBSTRING, "r") as priv_key_file:
             private_key = RSA.importKey(priv_key_file.read())
+
+        with open(self.SSL_DIR + username + self.CLIENT_PUB_KEY_SUBSTRING, "r") as server_cert_file:
+            server_cert_txt = server_cert_file.read()
+        publicKey = RSA.importKey(server_cert_txt)
+
+        print("key {}".format(publicKey.export_key()))
+
         print("hmac {}".format(hmac_message))
         encoded_hmac = hmac_message.encode()
         #hashed_hmac = SHA256.new(encoded_hmac)
@@ -176,6 +186,8 @@ class Client:
                 #public_key = RSA.importKey(pub_key_file.read())
                 pub_key_text = pub_key_file.read()
 
+            print("pubkey {} ".format(pub_key_text))
+
             json_encoded_public_key = b64encode(pub_key_text.encode()).decode()
 
             foo = {'username': username,
@@ -223,10 +235,12 @@ class Client:
         print("secret: {}".format(self.K))
 
         json_response = json.dumps(response)
-        print(json_response)
         self.Ks = json_response['dhServerKey']
+        print("Ks {}".format(self.Ks ))
+        self.server_iv = json_response['iv']
+        print("server iv {}".format(json_response))
         encrypted_content = json_response['encryptedContent']
-        print('ks: {} \n encrypted_content: {}'.format(self.Ks, encrypted_content))
+        print('encrypted_content: {}'.format(encrypted_content))
 
     # /submit
     def submit(self, vuln_description, fingerprint):

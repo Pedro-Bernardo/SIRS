@@ -22,8 +22,7 @@ import (
     "encoding/hex"
     "encoding/json"
     "encoding/base64"
-
-    //_ "github.com/alexellis/hmac"
+    "bytes"
 )
 
 var dh *dh_go.DH
@@ -48,7 +47,8 @@ type LoginRequest struct {
 
 type LoginResponse struct {
     DHServerKey  string `json:"dhServerKey"`
-    EncryptedContent  string `json:"encryptedContent"`
+    Iv  []byte `json:"iv"`
+    EncryptedContent  []byte `json:"encryptedContent"`
 }
 
 type SubmitRequest struct {
@@ -133,25 +133,59 @@ func DecryptWithPrivateKey(encryptedMessage []byte, privKey *rsa.PrivateKey) str
 	return string(plainText)
 }
 
-// using symmetric key generated (size = 256)
-func EncryptWithDHKey(message string) string {
+// using symmetric key generated (size = 256 bits)
+func EncryptWithDHKey(message string) ([]byte, []byte) {
     //cipher, err := aes.NewCipher(dh.Sh_secret.Bytes())
     keyBlock, err := aes.NewCipher(dh.Sh_secret.Bytes())
     if err != nil {
 		log.Fatal(err)
     }
+    log.Printf("keyBlock %v", keyBlock);
+
+    log.Printf("block len %v", aes.BlockSize);
+
+    log.Printf("message %v", string(message));
+    log.Printf("message len %v", len(message));
+    
+    // message padding to match block size
+    paddedMessage := PKCS5Padding([]byte(message), aes.BlockSize)
+    log.Printf("paddedMessage %v", string(paddedMessage));
+    log.Printf("paddedMessage len %v", len(paddedMessage));
+
     // The IV needs to be unique, but not secure. Therefore it's common to
 	// include it at the beginning of the ciphertext
-    buffer := make([]byte, aes.BlockSize + len(message))
+    buffer := make([]byte, aes.BlockSize + len(message) + 1)
+    log.Printf("buffer after make %v", buffer);
     iv := buffer[:aes.BlockSize]
+    log.Printf("iv %v", iv);
     if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		log.Fatal(err)
     }
+    log.Printf("buffer after io %v", buffer);
+
+    log.Printf("buffer after %v", buffer);
+    log.Printf("buffer len after %v", len(buffer));
     
     mode := cipher.NewCBCEncrypter(keyBlock, iv)
-	mode.CryptBlocks(buffer[aes.BlockSize:], []byte(message))
+    mode.CryptBlocks(buffer[aes.BlockSize:], []byte(paddedMessage))
+    
+    log.Printf("buffer after cryptblocks %v", buffer);
+    log.Printf("buffer len after cryptblocks %v", len(buffer));
 
-    return hex.EncodeToString(buffer)
+
+    log.Printf("message in bytes %v", []byte(paddedMessage));
+
+    //return hex.EncodeToString(buffer), iv
+    return buffer, iv
+}
+
+func PKCS5Padding(message []byte, blockSize int) []byte {
+    if len(message)%aes.BlockSize != 0 {
+		padding := blockSize - len(message)%blockSize
+        padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+        return append(message, padtext...)
+    }
+    return message	
 }
 
 //func VerifyClientSignature(username string, hashedPasswd []byte, hmac []byte, signature []byte) {
@@ -161,12 +195,16 @@ func VerifyClientSignature(hashedPasswd []byte, hmac []byte, signature []byte) {
     //publicKey := LoadClientPubKeyFromDatabase(username)
 
     log.Printf("hmac %v", string(hmac));
-    encodedExpectedHmac := hex.EncodeToString(hmac);
-    log.Printf("encodedExpectedHmac %v", encodedExpectedHmac);
-    hashedHmac := sha256.Sum256([]byte(encodedExpectedHmac));
+    //encodedExpectedHmac := hex.EncodeToString(hmac);
+    //log.Printf("encodedExpectedHmac %v", encodedExpectedHmac);
+    newhash := crypto.SHA256
+    pssh := newhash.New()
+    pssh.Write(hmac)
+    hashedHmac := pssh.Sum(nil)
     log.Printf("hashedhmac %v", hashedHmac[:]);
     //verifyErr := rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hashedHmac[:], signature)
-    verifyErr := rsa.VerifyPSS(userKey, crypto.SHA256, hashedHmac[:], signature, nil)
+    log.Printf("userkey %v", userKey);
+    verifyErr := rsa.VerifyPSS(userKey, newhash, hashedHmac, signature, nil)
     if verifyErr != nil {
         log.Fatal(verifyErr)
     }
@@ -195,7 +233,9 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     decodedPublicKey, err := base64.StdEncoding.DecodeString(userRequest.PublicKey)
     if err != nil {
 		log.Fatal(err)
-	}
+    }
+    
+    log.Printf("userkey %v", string(decodedPublicKey));
     userKey = LoadClientPubKeyFromDatabase(decodedPublicKey)
 
     log.Printf("register request from: %v", userRequest.Username)
@@ -213,7 +253,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     var userRequest LoginRequest
     json.NewDecoder(r.Body).Decode(&userRequest)
 
-    signatureBytes := []byte(userRequest.Signature)
+    //signatureBytes := []byte(userRequest.Signature)
 
     hmacBytes := []byte(userRequest.Hmac)
 
@@ -229,7 +269,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
     CheckMessageIntegrity(hmacBytes, userRequest.EncryptedContent, hashedPasswdBytes)
     //VerifyClientSignature(username, []byte(hashedPasswd),userRequest.Hmac, userRequest.Signature)
-    VerifyClientSignature(hashedPasswdBytes, hmacBytes, signatureBytes)
+    //VerifyClientSignature(hashedPasswdBytes, hmacBytes, signatureBytes)
 
     dh.GenSecret()
     dh.CalcPublic()
@@ -240,12 +280,15 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     sessionId := GenerateRandomNumber(8)
 
     content := dh.Public.Text(10) + "," + sessionId.Text(10)
-    log.Printf(content)
+    log.Printf("content %v ", content)
 
-    encryptedContent := EncryptWithDHKey(content)
+    // block size is always 128 bits (16 bytes), so iv size is 128 bits (16 bytes)
+    encryptedContent, iv := EncryptWithDHKey(content)
+    log.Printf("encryptedContent %v ", content)
 
     response := LoginResponse {
                             DHServerKey: dh.Public.Text(10),
+                            Iv: iv,
                             EncryptedContent: encryptedContent}
     json.NewEncoder(w).Encode(response)
 
