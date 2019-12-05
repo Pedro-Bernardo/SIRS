@@ -29,13 +29,13 @@ services:
         ipv4_address: "10.10.10.50"
 
 
-  # my_database:
-  #   image: db
-  #   cap_add:
-  #     - NET_ADMIN
-  #   networks:
-  #     internal:
-  #       ipv4_address: "172.18.1.11"
+  my_database:
+    image: database
+    cap_add:
+      - NET_ADMIN
+    networks:
+      internal:
+        ipv4_address: "172.18.1.11"
 
 networks:
   external:

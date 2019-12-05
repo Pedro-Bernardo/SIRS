@@ -9,4 +9,7 @@ ip route add default via 172.18.1.254
 # iptables -t nat -F
 # iptables -t nat -A POSTROUTING  -o ens9 -j MASQUERADE
 
-cd /service/server/src/server && ./go_server
+mv /service/server/go /usr/local/
+rm -rf /service/server/go
+# cd /service/server/ && go get -v github.com/lib/pq/...
+cd /service/server/src/server && ./server

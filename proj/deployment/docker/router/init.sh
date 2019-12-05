@@ -1,17 +1,28 @@
 # #!/bin/bash
 sysctl net.ipv4.ip_forward=1
 
-iptables -A FORWARD -j ACCEPT
+iptables -P INPUT DROP
+iptables -P OUTPUT DROP
+iptables -P FORWARD DROP
 # # iptables -t nat -F
 
 # drop all packets from 10.10.10.0/24 to 172.18.1.0/24 by default
-iptables -A FORWARD -s 10.10.10.0/24 -d 172.18.1.0/24 -j DROP
+# iptables -A FORWARD -s 10.10.10.0/24 -d 172.18.1.0/24 -j DROP
 
-# forward only packets to ports 80 and 443 of the server
-iptables -A FORWARD -s 10.10.10.0/24 -d 172.18.1.10 -p icmp --icmp-type echo-request -j ACCEPT
-iptables -A FORWARD -s 10.10.10.0/24 -d 172.18.1.10 -p icmp --icmp-type echo-reply -j ACCEPT
-iptables -A FORWARD -s 10.10.10.0/24 -d 172.18.1.10 -m tcp -p tcp --dport 443 -j ACCEPT
-iptables -A FORWARD -s 10.10.10.0/24 -d 172.18.1.10 -m tcp -p tcp --dport 80 -j ACCEPT
+
+# forward icmp packets for debugging purposes
+iptables -A FORWARD -s 10.10.10.0/24 -d 172.18.1.10   -p icmp --icmp-type echo-request -j ACCEPT
+iptables -A FORWARD -s 10.10.10.0/24 -d 172.18.1.10   -p icmp --icmp-type echo-reply -j ACCEPT
+iptables -A FORWARD -s 172.18.1.10   -d 10.10.10.0/24 -p icmp --icmp-type echo-request -j ACCEPT
+iptables -A FORWARD -s 172.18.1.10   -d 10.10.10.0/24 -p icmp --icmp-type echo-reply -j ACCEPT
+
+# accept incoming https connections and outgoing responses
+iptables -A FORWARD -s 10.10.10.0/24 -d 172.18.1.10 -p tcp --dport 443 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
+iptables -A FORWARD -s 172.18.1.10 -d 10.10.10.0/24 -p tcp --sport 443 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+
+# accept incoming http connections and outgoing responses
+iptables -A FORWARD -s 10.10.10.0/24 -d 172.18.1.10 -p tcp --dport 80 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
+iptables -A FORWARD -s 172.18.1.10 -d 10.10.10.0/24 -p tcp --sport 80 -m conntrack --ctstate ESTABLISHED -j ACCEPT
 
 # maybe NAT ??
 # forward port 80

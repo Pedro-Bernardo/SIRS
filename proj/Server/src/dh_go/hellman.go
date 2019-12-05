@@ -1,17 +1,17 @@
 package dh_go
 
 import (
-	"log"
 	"crypto/rand"
-    "math/big"
+	"log"
+	"math/big"
 )
- 
+
 type DH struct {
-	G       	*big.Int
-	P       	*big.Int
-	Secret  	*big.Int
-	Public  	*big.Int
-	Sh_secret 	*big.Int
+	G         *big.Int
+	P         *big.Int
+	Secret    *big.Int
+	Public    *big.Int
+	Sh_secret *big.Int
 }
 
 func (dh *DH) GenSecret() {
@@ -27,12 +27,11 @@ func (dh *DH) GenSecret() {
 }
 
 func (dh *DH) CalcPublic() {
-	// func (DH) 
+	// func (DH)
 	r := big.NewInt(0)
 	r.Exp(dh.G, dh.Secret, dh.P)
 	dh.Public = r
 }
-
 
 func (dh *DH) CalcSahredSecret(peer_public string) {
 	peer_public_n, _ := new(big.Int).SetString(peer_public, 10)
@@ -47,7 +46,7 @@ func (dh *DH) CalcSahredSecret(peer_public string) {
 	dh.Sh_secret = r
 }
 
-func New(g string, p string) *DH {  
+func New(g string, p string) *DH {
 	g_val, _ := new(big.Int).SetString(g, 10)
 	p_val, _ := new(big.Int).SetString(p, 10)
 
@@ -57,6 +56,8 @@ func New(g string, p string) *DH {
 	dh.Secret = nil
 	dh.Public = nil
 	dh.Sh_secret = nil
-		
-    return dh
+
+	return dh
 }
+
+// login

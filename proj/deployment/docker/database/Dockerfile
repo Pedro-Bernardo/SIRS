@@ -1,16 +1,14 @@
-FROM alpine:3.10.3
+FROM ubuntu:latest
 
-WORKDIR services
+WORKDIR service
 
-# RUN mkdir exampleServices
+RUN apt-get update && apt-get install iproute2 iputils-ping tcpdump postgresql sudo vim -y
 
-RUN apk update && apk add --no-cache openrc nginx 
-RUN adduser -D -g 'www' www
-RUN mkdir /www
-RUN chown -R www:www /var/lib/nginx
-RUN chown -R www:www /www
-RUN rc-service nginx start
+COPY setup setup 
 
-# COPY requirements/requirements.txt requi
+
+EXPOSE 5432
+
 COPY launch.sh launch.sh
 CMD ./launch.sh
+# CMD tail -f /dev/null
