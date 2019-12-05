@@ -31,8 +31,8 @@ class Client:
     SSL_DIR = 'ssl/'
     HOST_ADDR = '127.0.0.1'
 
-    CA_CERT = SSL_DIR + 'ca.pem'
-    SERVER_HTTP_CERT = SSL_DIR + 'server_tls.crt'
+    CA_CERT = SSL_DIR + 'ca.crt'
+    SERVER_HTTP_CERT = SSL_DIR + 'server.crt'
     CLIENT_PUB_KEY_SUBSTRING = '_public.pem'
     CLIENT_PRIV_KEY_SUBSTRING = '_private.pem'
 
@@ -57,14 +57,14 @@ class Client:
     client_iv = None
 
     # loads certificates from CA for tls and server for http
-    def __init(self):
+    def __init__(self):
         with open(self.CA_CERT, "r") as ca_cert_file:
             ca_cert_txt = ca_cert_file.read()
         self.ca_cert = load_certificate(FILETYPE_PEM, ca_cert_txt)
 
         with open(self.SERVER_HTTP_CERT, "r") as server_cert_file:
             server_cert_txt = server_cert_file.read()
-        self.server_http_cert = load_certificate(FILETYPE_PEM, server_cert_txt)
+        self.SERVER_HTTP_CERT = load_certificate(FILETYPE_PEM, server_cert_txt)
 
         self.verify_certificate_chain()
 
@@ -75,7 +75,7 @@ class Client:
             store.add_cert(self.ca_cert)
 
             # Create a certificate context using the store and the http server certificate
-            store_ctx = crypto.X509StoreContext(store, self.server_http_cert)
+            store_ctx = crypto.X509StoreContext(store, self.SERVER_HTTP_CERT)
 
             # Verify the certificate, returns None if it can validate the certificate
             store_ctx.verify_certificate()
@@ -109,12 +109,11 @@ class Client:
 
         response = conn.getresponse()
         response = response.read().decode()
-        print("Server http response: {}".format(response))
 
         return json.loads(response)
 
     def encrypt_with_server_pub_key(self, message):
-        server_pub_key = self.server_http_cert.get_pubkey().to_cryptography_key()
+        server_pub_key = self.SERVER_HTTP_CERT.get_pubkey().to_cryptography_key()
 
         # Optimal Asymmetric Encryption Padding (OAEP)
         return server_pub_key.encrypt(
@@ -153,8 +152,6 @@ class Client:
             server_cert_txt = server_cert_file.read()
         publicKey = RSA.importKey(server_cert_txt)
 
-        print("key {}".format(publicKey.export_key()))
-
         print("hmac {}".format(hmac_message))
         encoded_hmac = hmac_message.encode()
         #hashed_hmac = SHA256.new(encoded_hmac)
@@ -174,6 +171,7 @@ class Client:
         self.K = pow(self.Ks, self.Sc, self.P)
 
     #def decrypt_with_dh_symmetric_key(self, encrypted_message):
+
 
 
     def generate_key_pair(self, username):
@@ -210,8 +208,6 @@ class Client:
             with open(self.SSL_DIR + username + self.CLIENT_PUB_KEY_SUBSTRING, "r") as pub_key_file:
                 #public_key = RSA.importKey(pub_key_file.read())
                 pub_key_text = pub_key_file.read()
-
-            print("pubkey {} ".format(pub_key_text))
 
             json_encoded_public_key = b64encode(pub_key_text.encode()).decode()
 
@@ -250,22 +246,15 @@ class Client:
                'encryptedContent': encoded_encrypted_content}
         json_data = json.dumps(foo)
 
-        self.create_http_connection('POST', '/login', json_data)
-        #response = self.create_http_connection('POST', '/login', json_data)
-        #print("dhServerKey: {}".format(response['dhServerKey']))
+        response = self.create_http_connection('POST', '/login', json_data)
 
         # process to generate key for client to encrypt following request message
         self.Ks = int(response['dhServerKey'])
         self.generate_diffie_hellman_secret_key()
         print("secret: {}".format(self.K))
-
-        json_response = json.dumps(response)
-        self.Ks = json_response['dhServerKey']
-        print("Ks {}".format(self.Ks ))
-        self.server_iv = json_response['iv']
-        print("server iv {}".format(json_response))
-        encrypted_content = json_response['encryptedContent']
+        encrypted_content = response['encryptedContent']
         print('encrypted_content: {}'.format(encrypted_content))
+        #iv is going to be first 16 bytes of encrypted_content
 
     # /submit
     def submit(self, vuln_description, fingerprint):

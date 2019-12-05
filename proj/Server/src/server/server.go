@@ -47,7 +47,6 @@ type LoginRequest struct {
 
 type LoginResponse struct {
     DHServerKey  string `json:"dhServerKey"`
-    Iv  []byte `json:"iv"`
     EncryptedContent  []byte `json:"encryptedContent"`
 }
 
@@ -72,7 +71,7 @@ func GenerateRandomNumber(length int) *big.Int {
     return randInteger
 }
 
-func LoadPrivKeyFromFile(filename string) *rsa.PrivateKey {
+func LoadPrivKeyFromFile(filename string) *rsa.PrivateKey { 
     keyString, _ := ioutil.ReadFile(filename)
     block, _ := pem.Decode([]byte(keyString))
     parseResult, _ := x509.ParsePKCS8PrivateKey(block.Bytes)
@@ -111,22 +110,10 @@ func LoadClientPubKeyFromDatabase(block []byte) *rsa.PublicKey {
 }
 
 func DecryptWithPrivateKey(encryptedMessage []byte, privKey *rsa.PrivateKey) string {
-    log.Println("DecryptWithPrivateKey")
     hash := sha256.New()
     log.Println("hash done")
-    /*
-    publicKey := LoadPubKeyFromFile("../../ssl/server_tls.crt")
-    
-    log.Println("after getting public key")
 
-    content := "as,f4bf9f7fcbedaba0392f108c59d8f4a38b3838efb64877380171b54475c2ade8,43605213990907437119360750126973250176164454042249042287736004320420075268620"
-    encryptedContent, err := rsa.EncryptOAEP(hash, rand.Reader, publicKey, []byte(content), nil)
-    if err != nil {
-		log.Fatal(err)
-    }*/
-    //plainText, err := rsa.DecryptPKCS1v15(rand.Reader, privKey, encryptedMessage)
     plainText, err := rsa.DecryptOAEP(hash, rand.Reader, privKey, encryptedMessage, nil)
-    //plainText, err := rsa.DecryptOAEP(hash, rand.Reader, privKey, encryptedContent, nil)
 	if err != nil {
 		log.Fatal(err)
     }
@@ -134,7 +121,7 @@ func DecryptWithPrivateKey(encryptedMessage []byte, privKey *rsa.PrivateKey) str
 }
 
 // using symmetric key generated (size = 256 bits)
-func EncryptWithDHKey(message string) ([]byte, []byte) {
+func EncryptWithDHKey(message string) []byte {
     //cipher, err := aes.NewCipher(dh.Sh_secret.Bytes())
     keyBlock, err := aes.NewCipher(dh.Sh_secret.Bytes())
     if err != nil {
@@ -154,38 +141,29 @@ func EncryptWithDHKey(message string) ([]byte, []byte) {
 
     // The IV needs to be unique, but not secure. Therefore it's common to
 	// include it at the beginning of the ciphertext
-    buffer := make([]byte, aes.BlockSize + len(message) + 1)
+    buffer := make([]byte, aes.BlockSize + len(paddedMessage))
     log.Printf("buffer after make %v", buffer);
     iv := buffer[:aes.BlockSize]
-    log.Printf("iv %v", iv);
     if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		log.Fatal(err)
     }
-    log.Printf("buffer after io %v", buffer);
 
     log.Printf("buffer after %v", buffer);
     log.Printf("buffer len after %v", len(buffer));
     
     mode := cipher.NewCBCEncrypter(keyBlock, iv)
     mode.CryptBlocks(buffer[aes.BlockSize:], []byte(paddedMessage))
-    
-    log.Printf("buffer after cryptblocks %v", buffer);
-    log.Printf("buffer len after cryptblocks %v", len(buffer));
-
-
-    log.Printf("message in bytes %v", []byte(paddedMessage));
 
     //return hex.EncodeToString(buffer), iv
-    return buffer, iv
+    return buffer
 }
 
 func PKCS5Padding(message []byte, blockSize int) []byte {
-    if len(message)%aes.BlockSize != 0 {
-		padding := blockSize - len(message)%blockSize
-        padtext := bytes.Repeat([]byte{byte(padding)}, padding)
-        return append(message, padtext...)
-    }
-    return message	
+    padding := blockSize - len(message)%blockSize
+    padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+    return append(message, padtext...)
+
+
 }
 
 //func VerifyClientSignature(username string, hashedPasswd []byte, hmac []byte, signature []byte) {
@@ -203,7 +181,6 @@ func VerifyClientSignature(hashedPasswd []byte, hmac []byte, signature []byte) {
     hashedHmac := pssh.Sum(nil)
     log.Printf("hashedhmac %v", hashedHmac[:]);
     //verifyErr := rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hashedHmac[:], signature)
-    log.Printf("userkey %v", userKey);
     verifyErr := rsa.VerifyPSS(userKey, newhash, hashedHmac, signature, nil)
     if verifyErr != nil {
         log.Fatal(verifyErr)
@@ -245,7 +222,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
     //addUser(userRequest.Username, userRequest.HashedPasswd, userRequest.PublicKey)
 
     //fmt.Fprintf(w, "Request body: %+v", ur.Username)
-    fmt.Fprintf(w, "Register")
+    fmt.Fprintf(w, "")
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
@@ -257,7 +234,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
     hmacBytes := []byte(userRequest.Hmac)
 
-    decryptedContent := DecryptWithPrivateKey(userRequest.EncryptedContent, LoadPrivKeyFromFile("../../ssl/server_tls.key"))
+    decryptedContent := DecryptWithPrivateKey(userRequest.EncryptedContent, LoadPrivKeyFromFile("../../ssl/server.key"))
     
     fields := strings.Split(decryptedContent, ",")
     //username := fields[0]
@@ -283,16 +260,15 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     log.Printf("content %v ", content)
 
     // block size is always 128 bits (16 bytes), so iv size is 128 bits (16 bytes)
-    encryptedContent, iv := EncryptWithDHKey(content)
-    log.Printf("encryptedContent %v ", content)
+    encryptedContent := EncryptWithDHKey(content)
+    log.Printf("encryptedContent %v ", encryptedContent)
 
     response := LoginResponse {
                             DHServerKey: dh.Public.Text(10),
-                            Iv: iv,
                             EncryptedContent: encryptedContent}
     json.NewEncoder(w).Encode(response)
 
-    fmt.Fprintf(w, "Login")
+    fmt.Fprintf(w, "")
 }
 
 func submitHandler(w http.ResponseWriter, r *http.Request) {
@@ -302,23 +278,23 @@ func submitHandler(w http.ResponseWriter, r *http.Request) {
 
     log.Printf("submit request for: %v", userRequest.VulnDescription)
 
-    fmt.Fprintf(w, "Submit")
+    fmt.Fprintf(w, "")
 }
 
 func showHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "Show")
+    fmt.Fprintf(w, "")
 }
 
 func scoreHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "Score")
+    fmt.Fprintf(w, "")
 }
 
 func removeUserHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "Remove user")
+    fmt.Fprintf(w, "")
 }
 
 func removeSubmissionHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "Remove submission")
+    fmt.Fprintf(w, "")
 }
 
 func main() {
