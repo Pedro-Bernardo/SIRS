@@ -10,10 +10,13 @@
 mkdir -p cacerts && cd cacerts
 
 echo "generating CA keys"
-openssl req -new -newkey rsa:2048 -nodes -out ca.csr -keyout ca.key
+# openssl req -new -newkey rsa:2048 -nodes -out ca.csr -keyout ca.key
+openssl genrsa -out ca.key 2048
 
 echo "creating self-signed certifiate"
-openssl x509 -trustout -signkey ca.key -days 365 -req -in ca.csr -out ca.pem
+openssl req -new -x509 -key ca.key -out ca.crt
+# openssl x509 -trustout -signkey ca.key -days 365 -req -in ca.csr -out ca.pem
+
 cd ..
 
 echo "creating server key"
@@ -23,10 +26,12 @@ echo "creating server signing request"
 openssl req -new -key server_tls.key -out server_tls.csr
 
 echo "creating server ceritficate signed by the CA"
-openssl x509 -req -in server_tls.csr -CA cacerts/ca.pem -CAkey cacerts/ca.key -CAcreateserial -out server_tls.crt -days 300 -sha256
+openssl x509 -req -in server_tls.csr -CA cacerts/ca.crt -CAkey cacerts/ca.key -CAcreateserial -extfile ./openssl.cnf -extensions v3_ca -out server_tls.crt -days 300 -sha256
+
+# openssl x509 -req -in server_tls.csr -CA cacerts/ca.pem -CAkey cacerts/ca.key -CAcreateserial -out server_tls.crt -days 300 -sha256
 
 echo "moving CA certificate to client"
-cp cacerts/ca.pem ../Client/ssl
+cp cacerts/ca.crt ../Client/ssl
 echo "moving keys to server"
 cp server_tls.key server_tls.crt ../Server/ssl
 
