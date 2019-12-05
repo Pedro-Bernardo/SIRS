@@ -52,17 +52,17 @@ mkdir -p docker/server/server/ && cp -r ../Server/pkg ../Server/src ../Server/ss
 
 cd docker
 
-# for i in $(ls -d */); do 
-#     # remove "/" form directory name
-#     directory_name=$(echo $i | rev | cut -c 2- | rev)
-#     echo "creating container for $directory_name" 
-#     cd $i && docker build . --tag=$directory_name && cd ..
-# done
+for i in $(ls -d */); do 
+    # remove "/" form directory name
+    directory_name=$(echo $i | rev | cut -c 2- | rev)
+    echo "creating container for $directory_name" 
+    cd $i && docker build . --tag=$directory_name && cd ..
+done
 
-# docker-compose up -d
+docker-compose up -d
 
-# client_pid=$(docker ps | grep client | cut -d' ' -f1)
-# echo "setup complete!"
-# echo "run the following command to enter to the client container: "
-# echo "docker exec -it $client_pid bash"
+client_pid=$(docker ps | grep client | cut -d' ' -f1)
+echo "setup complete!"
+echo "run the following command to enter to the client container: "
+echo "docker exec -it $client_pid bash"
 
