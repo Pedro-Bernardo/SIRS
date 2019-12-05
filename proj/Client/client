@@ -31,7 +31,8 @@ class Client:
     SSL_DIR = 'ssl/'
     HOST_ADDR = '127.0.0.1'
 
-    SERVER_TLS_CERT = SSL_DIR + 'server_tls.crt'
+    CA_CERT = SSL_DIR + 'ca.pem'
+    SERVER_HTTP_CERT = SSL_DIR + 'server_tls.crt'
     CLIENT_PUB_KEY_SUBSTRING = '_public.pem'
     CLIENT_PRIV_KEY_SUBSTRING = '_private.pem'
 
@@ -55,8 +56,38 @@ class Client:
     server_iv = None
     client_iv = None
 
+    # loads certificates from CA for tls and server for http
+    def __init(self):
+        with open(self.CA_CERT, "r") as ca_cert_file:
+            ca_cert_txt = ca_cert_file.read()
+        self.ca_cert = load_certificate(FILETYPE_PEM, ca_cert_txt)
+
+        with open(self.SERVER_HTTP_CERT, "r") as server_cert_file:
+            server_cert_txt = server_cert_file.read()
+        self.server_http_cert = load_certificate(FILETYPE_PEM, server_cert_txt)
+
+        self.verify_certificate_chain()
+
+    def verify_certificate_chain(self):
+        # Create a certificate store and add your trusted certs (CA)
+        try:
+            store = crypto.X509Store()
+            store.add_cert(self.ca_cert)
+
+            # Create a certificate context using the store and the http server certificate
+            store_ctx = crypto.X509StoreContext(store, self.server_http_cert)
+
+            # Verify the certificate, returns None if it can validate the certificate
+            store_ctx.verify_certificate()
+
+            return True
+
+        except Exception as e:
+            print(e)
+            return False
+
     def create_http_tls_connection(self, method, endpoint, json_data):
-        context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=self.SERVER_TLS_CERT)
+        context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=self.CA_CERT)
         # check if hostname == CA
         ssl.match_hostname = lambda cert, hostname: True
 
@@ -83,13 +114,7 @@ class Client:
         return json.loads(response)
 
     def encrypt_with_server_pub_key(self, message):
-        # change to SERVER_CERT
-        # TODO: add code to validate server.crt against CA
-        with open(self.SERVER_TLS_CERT, "r") as server_cert_file:
-            server_cert_txt = server_cert_file.read()
-        server_cert = load_certificate(FILETYPE_PEM, server_cert_txt)
-
-        server_pub_key = server_cert.get_pubkey().to_cryptography_key()
+        server_pub_key = self.server_http_cert.get_pubkey().to_cryptography_key()
 
         # Optimal Asymmetric Encryption Padding (OAEP)
         return server_pub_key.encrypt(
