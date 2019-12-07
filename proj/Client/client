@@ -57,6 +57,8 @@ class Client:
     server_iv = None
     client_iv = None
 
+    session_id = None
+
     # loads certificates from CA for tls and server for http
     def __init__(self):
         with open(self.CA_CERT, "r") as ca_cert_file:
@@ -136,6 +138,14 @@ class Client:
         digest_maker = hmac.new(hashed_passwd.encode(), encrypted_message, hashlib.sha256)
         return digest_maker.hexdigest()
 
+    def check_message_integrity(self, hmac, hashed_passwd, encrypted_content):
+        content_hmac = self.hmac_maker(hashed_passwd, encrypted_content)
+
+        if content_hmac.__eq__(hmac):
+            print("message integrity checked!")
+        else:
+            print("message integrity not maintained!")
+
     def sign_with_client_priv_key(self, username, hmac_message):
         with open(self.SSL_DIR + username + self.CLIENT_PRIV_KEY_SUBSTRING, "r") as priv_key_file:
             private_key = RSA.importKey(priv_key_file.read())
@@ -166,7 +176,7 @@ class Client:
         # iv is going to be first 16 bytes of encrypted_content
         iv = encrypted_message[:16]
         print('iv: {}'.format(iv))
-        decoded_message = b64decode(encrypted_message[16:])
+        decoded_message = encrypted_message[16:]
         cipher = AES.new(str(self.K), AES.MODE_CBC, iv)
         return unpad(cipher.decrypt(decoded_message), AES.block_size)
 
@@ -245,17 +255,25 @@ class Client:
         response = self.create_http_connection('POST', '/login', json_data)
 
         print("http response: {}".format(response))
+
+        hmac_response = response['hmac']
+        encrypted_content = response['encryptedContent']
+        print('encrypted_content: {}'.format(encrypted_content))
+        decoded_encrypted_hmac = b64decode(encrypted_content)
+        self.check_message_integrity(hmac_response, hashed_passwd, decoded_encrypted_hmac)
+
         # process to generate key for client to encrypt following request message
         self.Ks = int(response['dhServerKey'])
         self.generate_diffie_hellman_secret_key()
-        print("secret: {}".format(self.K))
-        encrypted_content = response['encryptedContent']
-        print('encrypted_content: {}'.format(encrypted_content))
-        decrypted_content = self.decrypt_with_dh_symmetric_key(encrypted_content)
+        print("secret k: {}".format(self.K))
+
+        decrypted_content = self.decrypt_with_dh_symmetric_key(decoded_encrypted_hmac)
         print('decrypted_content: {}'.format(decrypted_content))
 
+        self.session_id = decrypted_content[]
 
-    # /submit
+
+        # /submit
     def submit(self, vuln_description, fingerprint):
         self.login()
         print("submit")

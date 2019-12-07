@@ -185,16 +185,21 @@ func VerifyClientSignature(hashedPasswd []byte, hmac []byte, signature []byte) {
 
 func CheckMessageIntegrity(messageHmac []byte, encryptedMessage []byte, hashedPasswd []byte) {
     // does the hmac of the encrypted message content received to check if the hmac's the same in the signature
-    hasherHmac := hmac.New(sha256.New, hashedPasswd)
-    hasherHmac.Write(encryptedMessage)
-    expectedHmac := hasherHmac.Sum(nil)
-    encodedExpectedHmac := hex.EncodeToString(expectedHmac)
+    encodedExpectedHmac := hmacMaker(encryptedMessage, hashedPasswd)
 
     integrityChecks := hmac.Equal(messageHmac, []byte(encodedExpectedHmac))
     if (integrityChecks == false) {
         log.Fatal("Integrity violated!")
     }
     log.Printf("Message integrity checked!")
+}
+
+func hmacMaker(encryptedMessage []byte, hashedPasswd []byte) string {
+    // does the hmac of the encrypted message content received to check if the hmac's the same in the signature
+    hasherHmac := hmac.New(sha256.New, hashedPasswd)
+    hasherHmac.Write(encryptedMessage)
+    expectedHmac := hasherHmac.Sum(nil)
+    return hex.EncodeToString(expectedHmac)
 }
 
 func registerHandler(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +264,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     log.Printf("encryptedContent %v ", encryptedContent)
 
     response := LoginResponse {
+                            Hmac: hmacMaker(encryptedContent, hashedPasswdBytes),
                             DHServerKey: dh.Public.Text(10),
                             EncryptedContent: encryptedContent}
     json.NewEncoder(w).Encode(response)
