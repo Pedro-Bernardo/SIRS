@@ -13,6 +13,7 @@ from secrets import randbits
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_PSS
 from Crypto.Hash import SHA256
+from Crypto.Cipher import AES
 
 from OpenSSL.crypto import (load_certificate, load_publickey, load_privatekey, dump_certificate, X509, X509Name, PKey)
 from OpenSSL.crypto import (TYPE_RSA, FILETYPE_PEM, FILETYPE_ASN1 )
@@ -135,15 +136,6 @@ class Client:
         digest_maker = hmac.new(hashed_passwd.encode(), encrypted_message, hashlib.sha256)
         return digest_maker.hexdigest()
 
-    """def sign_with_client_priv_key(self, username, hmac_message):
-        with open(self.SSL_DIR + username + self.CLIENT_PRIV_KEY_SUBSTRING, "r") as priv_key_file:
-            private_key = RSA.importKey(priv_key_file.read())
-
-        signer = PKCS1_v1_5.new(private_key)
-
-        #return signer.sign(self.hash_with_sha256(digest))
-        return signer.sign(self.hash_with_sha256(hmac_message))"""
-
     def sign_with_client_priv_key(self, username, hmac_message):
         with open(self.SSL_DIR + username + self.CLIENT_PRIV_KEY_SUBSTRING, "r") as priv_key_file:
             private_key = RSA.importKey(priv_key_file.read())
@@ -170,9 +162,13 @@ class Client:
     def generate_diffie_hellman_secret_key(self):
         self.K = pow(self.Ks, self.Sc, self.P)
 
-    #def decrypt_with_dh_symmetric_key(self, encrypted_message):
-
-
+    def decrypt_with_dh_symmetric_key(self, encrypted_message):
+        # iv is going to be first 16 bytes of encrypted_content
+        iv = encrypted_message[:16]
+        print('iv: {}'.format(iv))
+        decoded_message = b64decode(encrypted_message[16:])
+        cipher = AES.new(str(self.K), AES.MODE_CBC, iv)
+        return unpad(cipher.decrypt(decoded_message), AES.block_size)
 
     def generate_key_pair(self, username):
         client_pub_key_path = self.SSL_DIR + username + self.CLIENT_PUB_KEY_SUBSTRING
@@ -248,13 +244,16 @@ class Client:
 
         response = self.create_http_connection('POST', '/login', json_data)
 
+        print("http response: {}".format(response))
         # process to generate key for client to encrypt following request message
         self.Ks = int(response['dhServerKey'])
         self.generate_diffie_hellman_secret_key()
         print("secret: {}".format(self.K))
         encrypted_content = response['encryptedContent']
         print('encrypted_content: {}'.format(encrypted_content))
-        #iv is going to be first 16 bytes of encrypted_content
+        decrypted_content = self.decrypt_with_dh_symmetric_key(encrypted_content)
+        print('decrypted_content: {}'.format(decrypted_content))
+
 
     # /submit
     def submit(self, vuln_description, fingerprint):

@@ -46,20 +46,29 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
+    Signature  string `json:"Signature"`
+    Hmac  string `json:"hmac"`
     DHServerKey  string `json:"dhServerKey"`
-    EncryptedContent  []byte `json:"encryptedContent"`
+    // includes non encypted iv (16 bytes) + ks from diffie-hellman () + sessionId (16 bytes)
+    EncryptedContent  []byte `json:"encryptedContent"` 
 }
 
 type SubmitRequest struct {
+    Signature  string `json:"Signature"`
+    Hmac  string `json:"hmac"`
     VulnDescription  string `json:"vulnDescription"`
     Fingerprint  string `json:"fingerprint"`
 }
 
 type SubmitResponse struct {
+    Signature  string `json:"Signature"`
+    Hmac  string `json:"hmac"`
     Status  string `json:"status"`
 }
 
 type ScoreResponse struct {
+    Signature  string `json:"Signature"`
+    Hmac  string `json:"hmac"`
     ScoreList  string `json:"scoreList"`
 }
 
@@ -127,17 +136,9 @@ func EncryptWithDHKey(message string) []byte {
     if err != nil {
 		log.Fatal(err)
     }
-    log.Printf("keyBlock %v", keyBlock);
-
-    log.Printf("block len %v", aes.BlockSize);
-
-    log.Printf("message %v", string(message));
-    log.Printf("message len %v", len(message));
     
     // message padding to match block size
     paddedMessage := PKCS5Padding([]byte(message), aes.BlockSize)
-    log.Printf("paddedMessage %v", string(paddedMessage));
-    log.Printf("paddedMessage len %v", len(paddedMessage));
 
     // The IV needs to be unique, but not secure. Therefore it's common to
 	// include it at the beginning of the ciphertext
@@ -147,14 +148,10 @@ func EncryptWithDHKey(message string) []byte {
     if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		log.Fatal(err)
     }
-
-    log.Printf("buffer after %v", buffer);
-    log.Printf("buffer len after %v", len(buffer));
     
     mode := cipher.NewCBCEncrypter(keyBlock, iv)
     mode.CryptBlocks(buffer[aes.BlockSize:], []byte(paddedMessage))
 
-    //return hex.EncodeToString(buffer), iv
     return buffer
 }
 
@@ -162,8 +159,6 @@ func PKCS5Padding(message []byte, blockSize int) []byte {
     padding := blockSize - len(message)%blockSize
     padtext := bytes.Repeat([]byte{byte(padding)}, padding)
     return append(message, padtext...)
-
-
 }
 
 //func VerifyClientSignature(username string, hashedPasswd []byte, hmac []byte, signature []byte) {
@@ -241,8 +236,6 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     hashedPasswd := fields[1]
     hashedPasswdBytes := []byte(hashedPasswd)
     Kc := fields[2]
-    log.Printf(Kc)
-    log.Printf("login request from: %v", fields[0])
 
     CheckMessageIntegrity(hmacBytes, userRequest.EncryptedContent, hashedPasswdBytes)
     //VerifyClientSignature(username, []byte(hashedPasswd),userRequest.Hmac, userRequest.Signature)
@@ -252,11 +245,13 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     dh.CalcPublic()
     dh.CalcSahredSecret(Kc)
 
+    log.Printf("k: %v", dh.Sh_secret)
+
     w.Header().Set("Content-Type", "application/json")
 
-    sessionId := GenerateRandomNumber(8)
+    sessionId := GenerateRandomNumber(16)
 
-    content := dh.Public.Text(10) + "," + sessionId.Text(10)
+    content := dh.Public.Text(10) + sessionId.Text(10)
     log.Printf("content %v ", content)
 
     // block size is always 128 bits (16 bytes), so iv size is 128 bits (16 bytes)
