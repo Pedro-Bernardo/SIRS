@@ -29,17 +29,16 @@ import hashlib
 class Client:
 
     SSL_DIR = 'ssl/'
-    HOST_ADDR = '127.0.0.1'
+    HOST_ADDR = '172.18.1.10'
 
-    CA_CERT = SSL_DIR + 'ca.pem'
-    SERVER_HTTP_CERT = SSL_DIR + 'server_tls.crt'
+    CA_CERT = SSL_DIR + 'ca.crt'
+    SERVER_HTTP_CERT = SSL_DIR + 'server.crt'
     CLIENT_PUB_KEY_SUBSTRING = '_public.pem'
     CLIENT_PRIV_KEY_SUBSTRING = '_private.pem'
 
     # Diffie-Hellman constants
-    G = 16308619823141802043
-    P = 67698572054823323968190430198898140425166346813366120209767078191542539756243
-    # P = 137107582757175698770717454412245801822880987412056810011630034635311728845863360414226149634509215229761633670329211458649575623639268672553200337399194406650756924289847497941176898119552142893337098481981428687987824042031956469715267802308168423966432241527893292376814976597763350723121374845794843670621
+    G = 2
+    P = 32317006071311007300338913926423828248817941241140239112842009751400741706634354222619689417363569347117901737909704191754605873209195028853758986185622153212175412514901774520270235796078236248884246189477587641105928646099411723245426622522193230540919037680524235519125679715870117001058055877651038861847280257976054903569732561526167081339361799541336476559160368317896729073178384589680639671900977202194168647225871031411336429319536193471636533209717077448227988588565369208645296636077250268955505928362751121174096972998068410554359584866583291642136218231078990999448652468262416972035911852507045361090559L
 
     # Diffie-Hellman secret values
     # Sc - client secret value
@@ -57,14 +56,17 @@ class Client:
     client_iv = None
 
     # loads certificates from CA for tls and server for http
-    def __init(self):
+    def __init__(self):
         with open(self.CA_CERT, "r") as ca_cert_file:
             ca_cert_txt = ca_cert_file.read()
         self.ca_cert = load_certificate(FILETYPE_PEM, ca_cert_txt)
 
         with open(self.SERVER_HTTP_CERT, "r") as server_cert_file:
             server_cert_txt = server_cert_file.read()
-        self.server_http_cert = load_certificate(FILETYPE_PEM, server_cert_txt)
+
+        print("BEFORE", self.SERVER_HTTP_CERT)
+        self.SERVER_HTTP_CERT = load_certificate(FILETYPE_PEM, server_cert_txt)
+        print("AFTER", self.SERVER_HTTP_CERT)
 
         self.verify_certificate_chain()
 
@@ -75,7 +77,7 @@ class Client:
             store.add_cert(self.ca_cert)
 
             # Create a certificate context using the store and the http server certificate
-            store_ctx = crypto.X509StoreContext(store, self.server_http_cert)
+            store_ctx = crypto.X509StoreContext(store, self.SERVER_HTTP_CERT)
 
             # Verify the certificate, returns None if it can validate the certificate
             store_ctx.verify_certificate()
@@ -114,7 +116,7 @@ class Client:
         return json.loads(response)
 
     def encrypt_with_server_pub_key(self, message):
-        server_pub_key = self.server_http_cert.get_pubkey().to_cryptography_key()
+        server_pub_key = self.SERVER_HTTP_CERT.get_pubkey().to_cryptography_key()
 
         # Optimal Asymmetric Encryption Padding (OAEP)
         return server_pub_key.encrypt(
@@ -153,7 +155,7 @@ class Client:
             server_cert_txt = server_cert_file.read()
         publicKey = RSA.importKey(server_cert_txt)
 
-        print("key {}".format(publicKey.export_key()))
+        #print("key {}".format(publicKey.export_key()))
 
         print("hmac {}".format(hmac_message))
         encoded_hmac = hmac_message.encode()
@@ -345,7 +347,7 @@ def main():
         client.score()
 
 
-    
+
 
 if __name__ == "__main__":
     main()
