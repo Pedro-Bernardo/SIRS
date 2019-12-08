@@ -14,6 +14,7 @@ from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_PSS
 from Crypto.Hash import SHA256
 from Crypto.Cipher import AES
+from Crypto.Util.number import long_to_bytes
 
 from OpenSSL.crypto import (load_certificate, load_publickey, load_privatekey, dump_certificate, X509, X509Name, PKey)
 from OpenSSL.crypto import (TYPE_RSA, FILETYPE_PEM, FILETYPE_ASN1 )
@@ -30,7 +31,7 @@ import hashlib
 class Client:
 
     SSL_DIR = 'ssl/'
-    HOST_ADDR = '127.0.0.1'
+    HOST_ADDR = 'localhost'
 
     CA_CERT = SSL_DIR + 'ca.crt'
     SERVER_HTTP_CERT = SSL_DIR + 'server.crt'
@@ -38,9 +39,8 @@ class Client:
     CLIENT_PRIV_KEY_SUBSTRING = '_private.pem'
 
     # Diffie-Hellman constants
-    G = 16308619823141802043
-    P = 67698572054823323968190430198898140425166346813366120209767078191542539756243
-    # P = 137107582757175698770717454412245801822880987412056810011630034635311728845863360414226149634509215229761633670329211458649575623639268672553200337399194406650756924289847497941176898119552142893337098481981428687987824042031956469715267802308168423966432241527893292376814976597763350723121374845794843670621
+    G = 2
+    P = 2410312426921032588552076022197566074856950548502459942654116941958108831682612228890093858261341614673227141477904012196503648957050582631942730706805009223062734745341073406696246014589361659774041027169249453200378729434170325843778659198143763193776859869524088940195577346119843545301547043747207749969763750084308926339295559968882457872412993810129130294592999947926365264059284647209730384947211681434464714438488520940127459844288859336526896320919633919
 
     # Diffie-Hellman secret values
     # Sc - client secret value
@@ -67,6 +67,7 @@ class Client:
 
         with open(self.SERVER_HTTP_CERT, "r") as server_cert_file:
             server_cert_txt = server_cert_file.read()
+
         self.SERVER_HTTP_CERT = load_certificate(FILETYPE_PEM, server_cert_txt)
 
         self.verify_certificate_chain()
@@ -115,12 +116,26 @@ class Client:
 
         return json.loads(response)
 
-    def encrypt_with_server_pub_key(self, message):
+    def create_http_request_login(self, encrypted_message_credentials, encrypted_message_key, hashed_passwd, username):
+        # Sign(HMAC)
+        hmac_request = self.hmac_maker(hashed_passwd, encrypted_message_credentials + encrypted_message_key)
+        signature = self.sign_with_client_priv_key(username, hmac_request)
+        encoded_signature = b64encode(signature).decode()
+        encoded_encrypted_message_credentials = b64encode(encrypted_message_credentials).decode('latin-1')
+        encoded_encrypted_message_key = b64encode(encrypted_message_key).decode('latin-1')
+
+        foo = {'signature': encoded_signature,
+               'hmac': hmac_request,
+               'encryptedCredentials': encoded_encrypted_message_credentials,
+               'encryptedKey': encoded_encrypted_message_key}
+        return json.dumps(foo)
+
+    def encrypt_with_server_pub_key(self, encoded_message):
         server_pub_key = self.SERVER_HTTP_CERT.get_pubkey().to_cryptography_key()
 
+        print("len message to encrypt with server pub key {}".format(len(encoded_message)))
         # Optimal Asymmetric Encryption Padding (OAEP)
-        return server_pub_key.encrypt(
-                        message.encode('latin-1'),# ISO-8859-1
+        return server_pub_key.encrypt(encoded_message,
                         padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
                                      algorithm=hashes.SHA256(),
                                      label=None))
@@ -154,6 +169,8 @@ class Client:
             server_cert_txt = server_cert_file.read()
         publicKey = RSA.importKey(server_cert_txt)
 
+        #print("key {}".format(publicKey.export_key()))
+
         print("hmac {}".format(hmac_message))
         encoded_hmac = hmac_message.encode()
         #hashed_hmac = SHA256.new(encoded_hmac)
@@ -173,12 +190,20 @@ class Client:
         self.K = pow(self.Ks, self.Sc, self.P)
 
     def decrypt_with_dh_symmetric_key(self, encrypted_message):
-        # iv is going to be first 16 bytes of encrypted_content
+        # iv is going to be first 16 bytes of encrypted_message
         iv = encrypted_message[:16]
-        print('iv: {}'.format(iv))
         decoded_message = encrypted_message[16:]
-        cipher = AES.new(str(self.K), AES.MODE_CBC, iv)
+        symmetric_key = hash_with_sha256_to_string(self.K)
+        cipher = AES.new(symmetric_key, AES.MODE_CBC, iv)
         return unpad(cipher.decrypt(decoded_message), AES.block_size)
+
+    def encrypt_with_dh_symmetric_key(self, message):
+        # iv is going to be first 16 bytes of encrypted_content
+        iv = get_random_bytes(AES.block_size)
+        symmetric_key = hash_with_sha256_to_string(self.K)
+        self.cipher = AES.new(symmetric_key, AES.MODE_CBC, iv)
+        return b64encode(iv + self.cipher.encrypt(pad(data.encode('utf-8'),
+                                                      AES.block_size)))
 
     def generate_key_pair(self, username):
         client_pub_key_path = self.SSL_DIR + username + self.CLIENT_PUB_KEY_SUBSTRING
@@ -236,23 +261,21 @@ class Client:
         self.generate_diffie_hellman_client_key()
 
         hashed_passwd = self.hash_with_sha256_to_string(passwd)
-
+        print("hashed_passwd size {}".format(len(hashed_passwd)))
+        print("kc size {}".format(len(long_to_bytes(self.Kc))))
         # passwd or hash(password) ??????
-        content = username + ',' + hashed_passwd + ',' + str(self.Kc)
-        encrypted_content = self.encrypt_with_server_pub_key(content)
+        content_credentials = username + ',' + hashed_passwd
+        content_key = long_to_bytes(self.Kc)
+        #print("content size {}".format(len(content)))
+        # last 60 bytes of the credentials are going to be part of the key
+        encrypted_content_credentials = self.encrypt_with_server_pub_key(content_credentials.encode('latin-1')
+                                                                         + content_key[:60])
+        encrypted_content_key = self.encrypt_with_server_pub_key(content_key[60:])
 
-        # Sign(HMAC)
-        hmac_integrity = self.hmac_maker(hashed_passwd, encrypted_content)
-        signature = self.sign_with_client_priv_key(username, hmac_integrity)
-        encoded_signature = b64encode(signature).decode()
-        encoded_encrypted_content = b64encode(encrypted_content).decode('latin-1')
+        json_request = self.create_http_request_login(encrypted_content_credentials, encrypted_content_key,
+                                                      hashed_passwd, username)
 
-        foo = {'signature': encoded_signature,
-               'hmac': hmac_integrity,
-               'encryptedContent': encoded_encrypted_content}
-        json_data = json.dumps(foo)
-
-        response = self.create_http_connection('POST', '/login', json_data)
+        response = self.create_http_connection('POST', '/login', json_request)
 
         print("http response: {}".format(response))
 
@@ -270,18 +293,26 @@ class Client:
         decrypted_content = self.decrypt_with_dh_symmetric_key(decoded_encrypted_hmac)
         print('decrypted_content: {}'.format(decrypted_content))
 
-        self.session_id = decrypted_content[]
-
+        self.session_id = decrypted_content.split(",")[1]
+        print('session id: {}'.format(self.session_id))
 
         # /submit
     def submit(self, vuln_description, fingerprint):
         self.login()
         print("submit")
 
-        foo = {'vulnDescription': vuln_description, 'fingerprint': fingerprint}
+        content = vuln_description + "," + fingerprint + "," + sessionId
+        encrypted_content = self.encrypt_with_dh_symmetric_key(content)
+        """hmac_request
+        signature =
+
+        foo = {'signature': ,
+               'hmac': ,
+              # encrypted content is going to be vuln_description + fingerprint + sessionId
+               'encryptedContent': encrypted_content}
         json_data = json.dumps(foo)
 
-        self.create_http_connection('POST', '/submit', json_data)
+        self.create_http_connection('POST', '/submit', json_data)"""
 
     # /show
     def show(self):
@@ -350,8 +381,6 @@ def main():
     elif args.command.__eq__('score'):
         client.score()
 
-
-    
 
 if __name__ == "__main__":
     main()
