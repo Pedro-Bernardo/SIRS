@@ -14,7 +14,7 @@ from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_PSS
 from Crypto.Hash import SHA256
 from Crypto.Cipher import AES
-from Crypto.Util.number import long_to_bytes
+from Crypto.Util.number import long_to_bytes, bytes_to_long
 from Crypto.Util.Padding import pad, unpad
 
 from OpenSSL.crypto import (load_certificate, load_publickey, load_privatekey, dump_certificate, X509, X509Name, PKey)
@@ -200,9 +200,10 @@ class Client:
         # iv is going to be first 16 bytes of encrypted_message
         iv = encrypted_message[:16]
         decoded_message = encrypted_message[16:]
-        print("block size: {}".format(AES.block_size))
+        print("IV: ", iv)
         print("decoded_message size: {}".format(len(decoded_message)))
-        symmetric_key = self.hash_with_sha256_32_bytes(long_to_bytes(self.Kc))
+        print("decoded_message: {}".format(decoded_message))
+        symmetric_key = self.hash_with_sha256_32_bytes(long_to_bytes(self.K))
         cipher = AES.new(symmetric_key, AES.MODE_CBC, iv)
         #cipher = AES.new(long_to_bytes(self.Kc), AES.MODE_CBC, iv)
         return unpad(cipher.decrypt(decoded_message), AES.block_size, style='pkcs7')
@@ -210,7 +211,7 @@ class Client:
     def encrypt_with_dh_symmetric_key(self, message):
         # iv is going to be first 16 bytes of encrypted_content
         iv = get_random_bytes(AES.block_size)
-        symmetric_key = hash_with_sha256_to_string(long_to_bytes(self.Kc))
+        symmetric_key = hash_with_sha256_to_string(long_to_bytes(self.K))
         self.cipher = AES.new(symmetric_key, AES.MODE_CBC, iv)
         return b64encode(iv + self.cipher.encrypt(pad(data.encode('utf-8'),
                                                       AES.block_size)))
@@ -302,7 +303,7 @@ class Client:
         decrypted_content = self.decrypt_with_dh_symmetric_key(decoded_encrypted_hmac)
         print('decrypted_content: {}'.format(decrypted_content))
 
-        self.session_id = decrypted_content.split(",")[1]
+        self.session_id = decrypted_content.decode().split(",")[1]
         print('session id: {}'.format(self.session_id))
 
         # /submit

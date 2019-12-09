@@ -41,4 +41,4 @@ if __name__ == '__main__':
     with open(config_file, "r") as conf:
         config = json.loads(conf.read())
     
-    verify_client_signature(b64decode(config['publicKey']), config['username'], config['hmac'], config['signature'])
+    verify_client_signature(b64decode(config['pub_key']), config['username'], config['hmac'], config['signature'])

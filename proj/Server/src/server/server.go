@@ -38,6 +38,7 @@ type VerifyStruct struct {
 	Signature string `json:"signature"`
 	PublicKey []byte `json:"pub_key"`
 }
+
 type RegisterRequest struct {
 	Username     string `json:"username"`
 	HashedPasswd string `json:"hashedPasswd"`
@@ -52,7 +53,7 @@ type LoginRequest struct {
 	Signature            string `json:"signature"`
 	Hmac                 string `json:"hmac"`
 	EncryptedCredentials []byte `json:"encryptedCredentials"`
-	Encryptedkey         []byte `json:"encryptedKey"`
+	EncryptedKey         []byte `json:"encryptedKey"`
 }
 
 type LoginResponse struct {
@@ -129,14 +130,14 @@ func LoadClientPubKeyFromDatabase(block []byte) *rsa.PublicKey {
 }
 
 func DecryptWithPrivateKey(encryptedMessage []byte, privKey *rsa.PrivateKey) string {
-    hash := sha256.New()  
+	hash := sha256.New()
 
 	plainText, err := rsa.DecryptOAEP(hash, rand.Reader, privKey, encryptedMessage, nil)
-	log.Printf("plainText: %v",string(plainText) )
+	log.Printf("plainText: %v", string(plainText))
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	return string(plainText)
 }
 
@@ -144,27 +145,33 @@ func DecryptWithPrivateKey(encryptedMessage []byte, privKey *rsa.PrivateKey) str
 func EncryptWithDHKey(message string) []byte {
 	//cipher, err := aes.NewCipher(dh.Sh_secret.Bytes())
 	log.Printf("secret dh key size %v", len(dh.Sh_secret.Bytes()))
+	log.Printf("secret dh key size %v", dh.Sh_secret)
 	_, key := HashWithSHA256(dh.Sh_secret.Bytes())
-    keyBlock, err := aes.NewCipher(key)
-    if err != nil {
+	keyBlock, err := aes.NewCipher(key)
+	if err != nil {
 		log.Fatal(err)
-    }
-	
-	log.Printf("encrypted message before padding: %v\n size %v\n", message, len(message))
+	}
 
-    // message padding to match block size
-    paddedMessage := PKCS5Padding([]byte(message), aes.BlockSize)
-	log.Printf("encrypted message after padding: %v\n size %v\n", string(paddedMessage), len(paddedMessage))
+	log.Printf("message before padding: %v\n size %v\n", message, len(message))
+
+	// message padding to match block size
+	paddedMessage := PKCS5Padding([]byte(message), aes.BlockSize)
+	log.Printf("message after padding: %v\n size %v\n", paddedMessage, len(paddedMessage))
 	// The IV needs to be unique, but not secure. Therefore it's common to
 	// include it at the beginning of the ciphertext
-    buffer := make([]byte, aes.BlockSize + len(paddedMessage))
-    iv := buffer[:aes.BlockSize]
-    if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+	buffer := make([]byte, aes.BlockSize+len(paddedMessage))
+	iv := buffer[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		log.Fatal(err)
-    }
-	
-    mode := cipher.NewCBCEncrypter(keyBlock, iv)
-    mode.CryptBlocks(buffer[aes.BlockSize:], []byte(paddedMessage))
+	}
+
+	log.Printf("BUFFER %v", buffer[aes.BlockSize:])
+	log.Printf("TO CYPHER %v", []byte(paddedMessage))
+	log.Printf("IV: %v", iv)
+	log.Printf("KEYYYY: %v", key)
+	mode := cipher.NewCBCEncrypter(keyBlock, iv)
+	mode.CryptBlocks(buffer[aes.BlockSize:], []byte(paddedMessage))
+	log.Printf("ENCRYPTED CONTENT %v", buffer[aes.BlockSize:])
 
 	return buffer
 }
@@ -211,32 +218,32 @@ func VerifyClientSignaturePython(username string, hmac []byte, signature []byte)
 
 func HashWithSHA256(textToHash []byte) (crypto.Hash, []byte) {
 	newhash := crypto.SHA256
-    pssh := newhash.New()
-    pssh.Write(textToHash)
+	pssh := newhash.New()
+	pssh.Write(textToHash)
 	hashed := pssh.Sum(nil)
-	
+
 	return newhash, hashed
 }
 
 //func VerifyClientSignature(username string, hashedPasswd []byte, hmac []byte, signature []byte) {
 func VerifyClientSignature(hashedPasswd []byte, hmac []byte, signature []byte) {
-    // load client's public key from database and parse into key
+	// load client's public key from database and parse into key
 
-    //publicKey := LoadClientPubKeyFromDatabase(username)
+	//publicKey := LoadClientPubKeyFromDatabase(username)
 
-    //log.Printf("hmac %v", string(hmac));
-    //encodedExpectedHmac := hex.EncodeToString(hmac);
-    //log.Printf("encodedExpectedHmac %v", encodedExpectedHmac);
-    
+	//log.Printf("hmac %v", string(hmac));
+	//encodedExpectedHmac := hex.EncodeToString(hmac);
+	//log.Printf("encodedExpectedHmac %v", encodedExpectedHmac);
+
 	newhash, hashedHmac := HashWithSHA256(hmac)
-	
-    log.Printf("hashedhmac %v", hashedHmac[:]);
-    //verifyErr := rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hashedHmac[:], signature)
-    verifyErr := rsa.VerifyPSS(userKey, newhash, hashedHmac, signature, nil)
-    if verifyErr != nil {
-        log.Fatal(verifyErr)
-    }
-    log.Printf("Message signature verified!")
+
+	log.Printf("hashedhmac %v", hashedHmac[:])
+	//verifyErr := rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hashedHmac[:], signature)
+	verifyErr := rsa.VerifyPSS(userKey, newhash, hashedHmac, signature, nil)
+	if verifyErr != nil {
+		log.Fatal(verifyErr)
+	}
+	log.Printf("Message signature verified!")
 }
 
 func CheckMessageIntegrity(messageHmac []byte, encryptedMessage []byte, hashedPasswd []byte) {
@@ -299,13 +306,11 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	//encryptedKeys := append(userRequest.EncryptedCredentials[len(userRequest.EncryptedCredentials)-60 : len(userRequest.EncryptedCredentials)], userRequest.EncryptedKey...)
 	//log.Printf("encryptedKeys: %v", encryptedKeys)
-	
+
 	//encryptedCredentials := userRequest.EncryptedCredentials[0 : len(userRequest.EncryptedCredentials)-60]
 	//log.Printf("encryptedCredentials: %v", encryptedCredentials)
-	
-	
 
-    serverPrivateKey := LoadPrivKeyFromFile("../../ssl/server.key")
+	serverPrivateKey := LoadPrivKeyFromFile("../../ssl/server.key")
 	//decryptedKeys := DecryptWithPrivateKey(encryptedKeys, serverPrivateKey)
 	//log.Printf("decryptedKeys: %v", decryptedKeys)
 	//decryptedCredentials := DecryptWithPrivateKey(encryptedCredentials, serverPrivateKey)
@@ -315,28 +320,28 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("decryptedKeys: %v\n", decryptedKey)
 	decryptedCredentials := DecryptWithPrivateKey(userRequest.EncryptedCredentials, serverPrivateKey)
 	log.Printf("decryptedCredentials: %v\n", decryptedCredentials)
-    
-    
-    fields := strings.Split(decryptedCredentials, ",")
-    //username := fields[0]
-    hashedPasswd := fields[1]
+
+	fields := strings.Split(decryptedCredentials, ",")
+	//username := fields[0]
+	hashedPasswd := fields[1]
 	hashedPasswdBytes := []byte(hashedPasswd)
-	
+
 	//Kc := base64.StdEncoding.EncodeToString([]byte(fields[2] + decryptedKey))
 	clientKey := fields[2] + decryptedKey
 	//Kc := string(hex.EncodeToString([]byte(fields[2] + decryptedKey)))
-	//Kc := fields[2] + decryptedKey 
+	//Kc := fields[2] + decryptedKey
 	Kc := new(big.Int)
 	Kc.SetBytes([]byte(clientKey))
 	log.Printf("Kc %v\n", Kc)
 	//log.Printf("Kc byte[] %v\n", []byte(Kc))
 	//log.Printf("Kc byte[] encode to string %v\n", base64.StdEncoding.EncodeToString([]byte(Kc)))
-    //log.Printf("login request from: %v\n", fields[0])
+	//log.Printf("login request from: %v\n", fields[0])
 
-    CheckMessageIntegrity(hmacBytes, append(userRequest.EncryptedCredentials, userRequest.EncryptedKey...), hashedPasswdBytes)
+	CheckMessageIntegrity(hmacBytes, append(userRequest.EncryptedCredentials, userRequest.EncryptedKey...), hashedPasswdBytes)
 	//VerifyClientSignature(username, []byte(hashedPasswd),userRequest.Hmac, userRequest.Signature)
 	//VerifyClientSignature(hashedPasswdBytes, hmacBytes, signatureBytes)
-	VerifyClientSignaturePython(fields[0], hmacBytes, signatureBytes)
+	authenic := VerifyClientSignaturePython(fields[0], hmacBytes, signatureBytes)
+	log.Printf("Authentic message? %v", authenic)
 
 	dh.GenSecret()
 	log.Printf("after gensecret")
@@ -355,8 +360,8 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	content := dh.Public.Text(10) + "," + sessionId.Text(10)
 	log.Printf("content %v ", content)
 
-    // block size is always 128 bits (16 bytes), so iv size is 128 bits (16 bytes)
-    encryptedContent := EncryptWithDHKey(content)
+	// block size is always 128 bits (16 bytes), so iv size is 128 bits (16 bytes)
+	encryptedContent := EncryptWithDHKey(content)
 
 	response := LoginResponse{
 		Hmac:             hmacMaker(encryptedContent, hashedPasswdBytes),
