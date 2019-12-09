@@ -15,6 +15,7 @@ from Crypto.Signature import PKCS1_PSS
 from Crypto.Hash import SHA256
 from Crypto.Cipher import AES
 from Crypto.Util.number import long_to_bytes
+from Crypto.Util.Padding import pad, unpad
 
 from OpenSSL.crypto import (load_certificate, load_publickey, load_privatekey, dump_certificate, X509, X509Name, PKey)
 from OpenSSL.crypto import (TYPE_RSA, FILETYPE_PEM, FILETYPE_ASN1 )
@@ -121,9 +122,11 @@ class Client:
         hmac_request = self.hmac_maker(hashed_passwd, encrypted_message_credentials + encrypted_message_key)
         signature = self.sign_with_client_priv_key(username, hmac_request)
         encoded_signature = b64encode(signature).decode()
-        encoded_encrypted_message_credentials = b64encode(encrypted_message_credentials).decode('latin-1')
-        encoded_encrypted_message_key = b64encode(encrypted_message_key).decode('latin-1')
+        encoded_encrypted_message_credentials = b64encode(encrypted_message_credentials).decode('utf-8')
+        encoded_encrypted_message_key = b64encode(encrypted_message_key).decode('utf-8')
 
+        #print("encrypted_message_credentials {}".format(encrypted_message_credentials.hex()))
+        #print("encrypted_message_key {}".format(encrypted_message_key))
         foo = {'signature': encoded_signature,
                'hmac': hmac_request,
                'encryptedCredentials': encoded_encrypted_message_credentials,
@@ -141,8 +144,12 @@ class Client:
                                      label=None))
 
     def hash_with_sha256_to_string(self, message):
-        hashed_message = hashlib.sha256(message.encode())
+        hashed_message = hashlib.sha256(message)
         return hashed_message.hexdigest()
+
+    def hash_with_sha256_32_bytes(self, message):
+        hashed_message = hashlib.sha256(message)
+        return hashed_message.digest()
 
     """def hash_with_sha256(self, message):
         return hashlib.sha256(message.encode())"""
@@ -193,14 +200,17 @@ class Client:
         # iv is going to be first 16 bytes of encrypted_message
         iv = encrypted_message[:16]
         decoded_message = encrypted_message[16:]
-        symmetric_key = hash_with_sha256_to_string(self.K)
+        print("block size: {}".format(AES.block_size))
+        print("decoded_message size: {}".format(len(decoded_message)))
+        symmetric_key = self.hash_with_sha256_32_bytes(long_to_bytes(self.Kc))
         cipher = AES.new(symmetric_key, AES.MODE_CBC, iv)
-        return unpad(cipher.decrypt(decoded_message), AES.block_size)
+        #cipher = AES.new(long_to_bytes(self.Kc), AES.MODE_CBC, iv)
+        return unpad(cipher.decrypt(decoded_message), AES.block_size, style='pkcs7')
 
     def encrypt_with_dh_symmetric_key(self, message):
         # iv is going to be first 16 bytes of encrypted_content
         iv = get_random_bytes(AES.block_size)
-        symmetric_key = hash_with_sha256_to_string(self.K)
+        symmetric_key = hash_with_sha256_to_string(long_to_bytes(self.Kc))
         self.cipher = AES.new(symmetric_key, AES.MODE_CBC, iv)
         return b64encode(iv + self.cipher.encrypt(pad(data.encode('utf-8'),
                                                       AES.block_size)))
@@ -235,7 +245,7 @@ class Client:
             self.generate_key_pair(username)
             # can we send pub key through tls ???????????
 
-            hashed_passwd = self.hash_with_sha256_to_string(passwd)
+            hashed_passwd = self.hash_with_sha256_to_string(passwd.encode())
             with open(self.SSL_DIR + username + self.CLIENT_PUB_KEY_SUBSTRING, "r") as pub_key_file:
                 #public_key = RSA.importKey(pub_key_file.read())
                 pub_key_text = pub_key_file.read()
@@ -260,13 +270,12 @@ class Client:
         self.generate_diffie_hellman_secret_client_value()
         self.generate_diffie_hellman_client_key()
 
-        hashed_passwd = self.hash_with_sha256_to_string(passwd)
-        print("hashed_passwd size {}".format(len(hashed_passwd)))
-        print("kc size {}".format(len(long_to_bytes(self.Kc))))
-        # passwd or hash(password) ??????
-        content_credentials = username + ',' + hashed_passwd
+        hashed_passwd = self.hash_with_sha256_to_string(passwd.encode())
+        content_credentials = username + ',' + hashed_passwd + ','
+        print("content_key {}".format(self.Kc))
         content_key = long_to_bytes(self.Kc)
-        #print("content size {}".format(len(content)))
+        print("content_key encoded {}".format(content_key))
+        print("content_key decoded {}".format(content_key.decode('latin-1')))
         # last 60 bytes of the credentials are going to be part of the key
         encrypted_content_credentials = self.encrypt_with_server_pub_key(content_credentials.encode('latin-1')
                                                                          + content_key[:60])
