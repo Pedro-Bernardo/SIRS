@@ -241,7 +241,7 @@ class Client:
         symmetric_key = self.hash_with_sha256_32_bytes(long_to_bytes(self.K))
         self.cipher = AES.new(symmetric_key, AES.MODE_CBC, iv)
         return iv + self.cipher.encrypt(pad(message.encode('utf-8'),
-                    AES.block_size), style='pkcs7')
+                    AES.block_size, style='pkcs7'))
 
     def generate_key_pair(self, username):
         client_pub_key_path = self.SSL_DIR + username + self.CLIENT_PUB_KEY_SUBSTRING
