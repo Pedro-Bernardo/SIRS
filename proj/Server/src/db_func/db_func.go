@@ -14,9 +14,9 @@ type submission struct {
 	binFP string
 }
 
-type score struct {
-	username string
-	points   int
+type Score struct {
+	Username string
+	Points   int
 }
 
 /*
@@ -34,7 +34,7 @@ func SQLErrorHandling(err error) {
 }
 
 //Retrives the users points from the database
-func getUserPoints(username string) int {
+func GetUserPoints(username string) int {
 	db := connDB()
 
 	queryStmt, err := db.Prepare("	SELECT points FROM accounts WHERE username = $1")
@@ -50,11 +50,12 @@ func getUserPoints(username string) int {
 }
 
 //Creates a new user in the database
-func addUser(username string, hashedPassword string, publicKey string) {
+func AddUser(username string, hashedPassword string, publicKey string) {
 	db := connDB()
 
 	queryStmt, err := db.Prepare("INSERT INTO accounts (username, public_key, pass , points) VALUES ($1,$2,$3,0)")
 
+	log.Printf("Prepared query: %v", queryStmt)
 	//the database itself should error if the username already exists
 	_, err = queryStmt.Exec(username, publicKey, hashedPassword)
 
@@ -68,7 +69,7 @@ func addUser(username string, hashedPassword string, publicKey string) {
 }
 
 //Retrives the hashed password for a specific user
-func getUserPasswordHash(username string) string {
+func GetUserPasswordHash(username string) string {
 	//Connects to the database
 	db := connDB()
 	//Does the query
@@ -88,7 +89,7 @@ func getUserPasswordHash(username string) string {
 }
 
 //
-func getUserPublicKey(username string) string {
+func GetUserPublicKey(username string) string {
 	//Connects to the database
 	db := connDB()
 	//Does the query
@@ -108,7 +109,7 @@ func getUserPublicKey(username string) string {
 }
 
 //Creates a new user in the database
-func addSession(username string, secret string) {
+func AddSession(username string, secret string) {
 	db := connDB()
 
 	queryStmt, err := db.Prepare("INSERT INTO sessions (user_id,secret) SELECT id, $1 FROM accounts WHERE username = $2")
@@ -126,7 +127,7 @@ func addSession(username string, secret string) {
 }
 
 //Retrives the session secret for the communication server/client
-func getSecret(username string) string {
+func GetSecret(username string) string {
 	//Connects to the database
 	db := connDB()
 	//Does the query
@@ -146,7 +147,7 @@ func getSecret(username string) string {
 }
 
 //Creates a new user in the database
-func setSecret(username string, secret string) {
+func SetSecret(username string, secret string) {
 	db := connDB()
 
 	queryStmt, err := db.Prepare("UPDATE sessions SET secret = $1 FROM accounts WHERE sessions.user_id = accounts.id AND accounts.username = $2")
@@ -166,7 +167,7 @@ func setSecret(username string, secret string) {
 
 //FIXME: duplicates
 //Creates a new user in the database
-func addSubmission(username string, vuln string, binFP string) {
+func AddSubmission(username string, vuln string, binFP string) {
 	db := connDB()
 	//try to add the binary fingerprint
 	queryStmt, err := db.Prepare("INSERT INTO binaries (bin_fp) VALUES ($1)")
@@ -196,7 +197,7 @@ func addSubmission(username string, vuln string, binFP string) {
 
 }
 
-func getUserSubmissions(username string) []submission {
+func GetUserSubmissions(username string) []submission {
 	//Connects to the database
 	db := connDB()
 	//Does the query
@@ -225,7 +226,7 @@ func getUserSubmissions(username string) []submission {
 	return submissions
 }
 
-func getScoreboard() []score {
+func GetScoreboard() []Score {
 	//Connects to the database
 	db := connDB()
 	//Does the query
@@ -234,7 +235,7 @@ func getScoreboard() []score {
 	rows, err := queryStmt.Query()
 	defer rows.Close()
 
-	scoreboard := make([]score, 0)
+	scoreboard := make([]Score, 0)
 	for rows.Next() {
 		var username string
 		var points int
@@ -242,7 +243,7 @@ func getScoreboard() []score {
 			log.Fatal(err)
 		}
 
-		scoreboard = append(scoreboard, score{username: username, points: points})
+		scoreboard = append(scoreboard, Score{Username: username, Points: points})
 	}
 	if err != nil {
 		SQLErrorHandling(err)
@@ -254,7 +255,7 @@ func getScoreboard() []score {
 	return scoreboard
 }
 
-func adminGetAllSubmissions() map[string][]submission {
+func AdminGetAllSubmissions() map[string][]submission {
 	//Connects to the database
 	db := connDB()
 	//Does the query
@@ -292,7 +293,7 @@ func adminGetAllSubmissions() map[string][]submission {
 	return submissions
 }
 
-func adminDeleteSubmission(username string, vuln string, binFP string) {
+func AdminDeleteSubmission(username string, vuln string, binFP string) {
 	//Connects to the database
 	db := connDB()
 
@@ -310,7 +311,7 @@ func adminDeleteSubmission(username string, vuln string, binFP string) {
 }
 
 //Creates a new user in the database
-func adminRemoveUser(username string) {
+func AdminRemoveUser(username string) {
 	db := connDB()
 
 	queryStmt, err := db.Prepare("DELETE FROM accounts WHERE username = $1")
@@ -329,7 +330,7 @@ func adminRemoveUser(username string) {
 
 func connDB() *sql.DB {
 	//FIXME: maybe import this ?
-	var dbHost string = "127.0.0.1"
+	var dbHost string = "172.18.1.11"
 	var dbPort string = "5432"
 	var username string = "sirs"
 	var dbName string = "sirsdb"
@@ -348,10 +349,10 @@ func connDB() *sql.DB {
 	return db
 }
 
-func main() {
-	//Example, TODO: delete the main function, this way it works as a library?
-	addUser("Ze", "aaa")
-	addSubmission("Ze", "a", "a")
-}
+// func main() {
+// 	//Example, TODO: delete the main function, this way it works as a library?
+// 	addUser("Ze", "aaa")
+// 	addSubmission("Ze", "a", "a")
+// }
 
 //ALTER SEQUENCE accounts_id_seq RESTART WITH 1;

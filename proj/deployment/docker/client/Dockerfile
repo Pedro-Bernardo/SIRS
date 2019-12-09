@@ -22,6 +22,7 @@ RUN apt-get install netcat -y
 RUN pip3 install cryptography
 RUN pip3 install pyopenssl
 RUN pip3 install pycrypto
+RUN pip3 install pycryptodome
 RUN pip3 install requests
 # RUN pip3 install pycrypto --user
 
