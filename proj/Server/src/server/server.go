@@ -22,13 +22,22 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
 )
 
 var dh *dh_go.DH
 
 var userKey *rsa.PublicKey
+var userKeyString []byte
 
+type VerifyStruct struct {
+	Username  string `json:"username"`
+	Hmac      string `json:"hmac"`
+	Signature string `json:"signature"`
+	PublicKey []byte `json:"pub_key"`
+}
 type RegisterRequest struct {
 	Username     string `json:"username"`
 	HashedPasswd string `json:"hashedPasswd"`
@@ -40,37 +49,37 @@ type RegisterResponse struct {
 }
 
 type LoginRequest struct {
-	Signature        string `json:"signature"`
-	Hmac             string `json:"hmac"`
-	EncryptedCredentials  []byte `json:"encryptedCredentials"`
-    EncryptedKey  []byte `json:"encryptedKey"`
+	Signature            string `json:"signature"`
+	Hmac                 string `json:"hmac"`
+	EncryptedCredentials []byte `json:"encryptedCredentials"`
+	Encryptedkey         []byte `json:"encryptedKey"`
 }
 
 type LoginResponse struct {
-    Signature  string `json:"signature"`
-    Hmac  string `json:"hmac"`
-    DHServerKey  string `json:"dhServerKey"`
-    // includes non encypted iv (16 bytes) + ks from diffie-hellman () + sessionId (16 bytes)
-    EncryptedContent  []byte `json:"encryptedContent"` 
+	Signature   string `json:"signature"`
+	Hmac        string `json:"hmac"`
+	DHServerKey string `json:"dhServerKey"`
+	// includes non encypted iv (16 bytes) + ks from diffie-hellman () + sessionId (16 bytes)
+	EncryptedContent []byte `json:"encryptedContent"`
 }
 
 type SubmitRequest struct {
-    Signature  string `json:"signature"`
-    Hmac  string `json:"hmac"`
-    VulnDescription  string `json:"vulnDescription"`
-    Fingerprint  string `json:"fingerprint"`
+	Signature       string `json:"signature"`
+	Hmac            string `json:"hmac"`
+	VulnDescription string `json:"vulnDescription"`
+	Fingerprint     string `json:"fingerprint"`
 }
 
 type SubmitResponse struct {
-    Signature  string `json:"signature"`
-    Hmac  string `json:"hmac"`
-    Status  string `json:"status"`
+	Signature string `json:"signature"`
+	Hmac      string `json:"hmac"`
+	Status    string `json:"status"`
 }
 
 type ScoreResponse struct {
-    Signature  string `json:"signature"`
-    Hmac  string `json:"hmac"`
-    ScoreList  string `json:"scoreList"`
+	Signature string `json:"signature"`
+	Hmac      string `json:"hmac"`
+	ScoreList string `json:"scoreList"`
 }
 
 func GenerateRandomNumber(length int) *big.Int {
@@ -81,12 +90,12 @@ func GenerateRandomNumber(length int) *big.Int {
 	return randInteger
 }
 
-func LoadPrivKeyFromFile(filename string) *rsa.PrivateKey { 
-    keyString, _ := ioutil.ReadFile(filename)
-    block, _ := pem.Decode([]byte(keyString))
-    parseResult, _ := x509.ParsePKCS8PrivateKey(block.Bytes)
-    privKey := parseResult.(*rsa.PrivateKey)
-    return privKey
+func LoadPrivKeyFromFile(filename string) *rsa.PrivateKey {
+	keyString, _ := ioutil.ReadFile(filename)
+	block, _ := pem.Decode([]byte(keyString))
+	parseResult, _ := x509.ParsePKCS8PrivateKey(block.Bytes)
+	privKey := parseResult.(*rsa.PrivateKey)
+	return privKey
 }
 
 func LoadPubKeyFromFile(filename string) *rsa.PublicKey {
@@ -120,8 +129,7 @@ func LoadClientPubKeyFromDatabase(block []byte) *rsa.PublicKey {
 }
 
 func DecryptWithPrivateKey(encryptedMessage []byte, privKey *rsa.PrivateKey) string {
-    hash := sha256.New()
-    
+    hash := sha256.New()  
 
 	plainText, err := rsa.DecryptOAEP(hash, rand.Reader, privKey, encryptedMessage, nil)
 	log.Printf("plainText: %v",string(plainText) )
@@ -158,13 +166,47 @@ func EncryptWithDHKey(message string) []byte {
     mode := cipher.NewCBCEncrypter(keyBlock, iv)
     mode.CryptBlocks(buffer[aes.BlockSize:], []byte(paddedMessage))
 
-    return buffer
+	return buffer
 }
 
 func PKCS5Padding(message []byte, blockSize int) []byte {
-    padding := blockSize - len(message)%blockSize
-    padtext := bytes.Repeat([]byte{byte(padding)}, padding)
-    return append(message, padtext...)
+	padding := blockSize - len(message)%blockSize
+	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+	return append(message, padtext...)
+}
+
+func VerifyClientSignaturePython(username string, hmac []byte, signature []byte) bool {
+	// create temp file
+	// write json to it with username, hmac and signature
+	file, err := ioutil.TempFile("verify", "config_")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.Remove(file.Name())
+
+	fmt.Println(file.Name()) // For example "dir/prefix054003078"
+
+	fmt.Println(userKeyString)
+	verify_struct := VerifyStruct{username, string(hmac), string(signature), userKeyString}
+
+	data, write_err := json.MarshalIndent(verify_struct, "", " ")
+
+	write_err = ioutil.WriteFile(file.Name(), data, 0644)
+
+	if write_err != nil {
+		log.Fatal(write_err)
+	}
+
+	cmd := exec.Command("python", "verify.py", file.Name())
+	fmt.Println(cmd.Args)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Printf("OUTPUT: %v", string(out))
+	fmt.Printf("OUTPUT: %v", out)
+
+	return strings.TrimSuffix(string(out), "\n") == "True"
 }
 
 func HashWithSHA256(textToHash []byte) (crypto.Hash, []byte) {
@@ -198,22 +240,22 @@ func VerifyClientSignature(hashedPasswd []byte, hmac []byte, signature []byte) {
 }
 
 func CheckMessageIntegrity(messageHmac []byte, encryptedMessage []byte, hashedPasswd []byte) {
-    // does the hmac of the encrypted message content received to check if the hmac's the same in the signature
-    encodedExpectedHmac := hmacMaker(encryptedMessage, hashedPasswd)
+	// does the hmac of the encrypted message content received to check if the hmac's the same in the signature
+	encodedExpectedHmac := hmacMaker(encryptedMessage, hashedPasswd)
 
-    integrityChecks := hmac.Equal(messageHmac, []byte(encodedExpectedHmac))
-    if (integrityChecks == false) {
-        log.Fatal("Integrity violated!")
-    }
-    log.Printf("Message integrity checked!")
+	integrityChecks := hmac.Equal(messageHmac, []byte(encodedExpectedHmac))
+	if integrityChecks == false {
+		log.Fatal("Integrity violated!")
+	}
+	log.Printf("Message integrity checked!")
 }
 
 func hmacMaker(encryptedMessage []byte, hashedPasswd []byte) string {
-    // does the hmac of the encrypted message content received to check if the hmac's the same in the signature
-    hasherHmac := hmac.New(sha256.New, hashedPasswd)
-    hasherHmac.Write(encryptedMessage)
-    expectedHmac := hasherHmac.Sum(nil)
-    return hex.EncodeToString(expectedHmac)
+	// does the hmac of the encrypted message content received to check if the hmac's the same in the signature
+	hasherHmac := hmac.New(sha256.New, hashedPasswd)
+	hasherHmac.Write(encryptedMessage)
+	expectedHmac := hasherHmac.Sum(nil)
+	return hex.EncodeToString(expectedHmac)
 }
 
 func registerHandler(w http.ResponseWriter, r *http.Request) {
@@ -226,6 +268,8 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 
+	userKeyString = decodedPublicKey
+
 	log.Printf("userkey %v", string(decodedPublicKey))
 	userKey = LoadClientPubKeyFromDatabase(decodedPublicKey)
 
@@ -235,8 +279,8 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	// CHANGE DATABASE TO KEEP USER PUBLIC KEY????
 	//addUser(userRequest.Username, userRequest.HashedPasswd, userRequest.PublicKey)
 
-
-    fmt.Fprintf(w, "")
+	// fmt.Fprintf(w, "")
+	fmt.Fprintf(w, "Request body: %+v", userRequest.Username)
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +288,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	var userRequest LoginRequest
 	json.NewDecoder(r.Body).Decode(&userRequest)
 
-	//signatureBytes := []byte(userRequest.Signature)
+	signatureBytes := []byte(userRequest.Signature)
 
 	hmacBytes := []byte(userRequest.Hmac)
 	log.Printf("hmac: %v", userRequest.Hmac)
@@ -292,6 +336,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
     CheckMessageIntegrity(hmacBytes, append(userRequest.EncryptedCredentials, userRequest.EncryptedKey...), hashedPasswdBytes)
 	//VerifyClientSignature(username, []byte(hashedPasswd),userRequest.Hmac, userRequest.Signature)
 	//VerifyClientSignature(hashedPasswdBytes, hmacBytes, signatureBytes)
+	VerifyClientSignaturePython(fields[0], hmacBytes, signatureBytes)
 
 	dh.GenSecret()
 	log.Printf("after gensecret")
@@ -301,25 +346,25 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("after dh")
 
-    log.Printf("k: %v", dh.Sh_secret)
+	log.Printf("k: %v", dh.Sh_secret)
 
-    w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 
-    sessionId := GenerateRandomNumber(16)
+	sessionId := GenerateRandomNumber(16)
 
-    content := dh.Public.Text(10) + "," + sessionId.Text(10)
-    log.Printf("content %v ", content)
+	content := dh.Public.Text(10) + "," + sessionId.Text(10)
+	log.Printf("content %v ", content)
 
     // block size is always 128 bits (16 bytes), so iv size is 128 bits (16 bytes)
     encryptedContent := EncryptWithDHKey(content)
 
-    response := LoginResponse {
-                            Hmac: hmacMaker(encryptedContent, hashedPasswdBytes),
-                            DHServerKey: dh.Public.Text(10),
-                            EncryptedContent: encryptedContent}
-    json.NewEncoder(w).Encode(response)
+	response := LoginResponse{
+		Hmac:             hmacMaker(encryptedContent, hashedPasswdBytes),
+		DHServerKey:      dh.Public.Text(10),
+		EncryptedContent: encryptedContent}
+	json.NewEncoder(w).Encode(response)
 
-    fmt.Fprintf(w, "")
+	fmt.Fprintf(w, "")
 }
 
 func submitHandler(w http.ResponseWriter, r *http.Request) {
@@ -329,30 +374,30 @@ func submitHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("submit request for: %v", userRequest.VulnDescription)
 
-    fmt.Fprintf(w, "")
+	fmt.Fprintf(w, "")
 }
 
 func showHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "")
+	fmt.Fprintf(w, "")
 }
 
 func scoreHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "")
+	fmt.Fprintf(w, "")
 }
 
 func removeUserHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "")
+	fmt.Fprintf(w, "")
 }
 
 func removeSubmissionHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "")
+	fmt.Fprintf(w, "")
 }
 
 func main() {
 	finish := make(chan bool)
 	dh = dh_go.New(
 		"2",
-		"32317006071311007300338913926423828248817941241140239112842009751400741706634354222619689417363569347117901737909704191754605873209195028853758986185622153212175412514901774520270235796078236248884246189477587641105928646099411723245426622522193230540919037680524235519125679715870117001058055877651038861847280257976054903569732561526167081339361799541336476559160368317896729073178384589680639671900977202194168647225871031411336429319536193471636533209717077448227988588565369208645296636077250268955505928362751121174096972998068410554359584866583291642136218231078990999448652468262416972035911852507045361090559")
+		"2410312426921032588552076022197566074856950548502459942654116941958108831682612228890093858261341614673227141477904012196503648957050582631942730706805009223062734745341073406696246014589361659774041027169249453200378729434170325843778659198143763193776859869524088940195577346119843545301547043747207749969763750084308926339295559968882457872412993810129130294592999947926365264059284647209730384947211681434464714438488520940127459844288859336526896320919633919")
 
 	mux_http := http.NewServeMux()
 	mux_http.HandleFunc("/login", loginHandler)
