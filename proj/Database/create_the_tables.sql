@@ -87,6 +87,7 @@ SET default_table_access_method = heap;
 CREATE TABLE public.accounts (
     id integer NOT NULL,
     username text NOT NULL,
+    public_key text NOT NULL,
     pass text NOT NULL,
     points integer NOT NULL
 );
@@ -217,65 +218,6 @@ ALTER TABLE ONLY public.binaries ALTER COLUMN id SET DEFAULT nextval('public.bin
 --
 
 ALTER TABLE ONLY public.submissions ALTER COLUMN id SET DEFAULT nextval('public.submissions_id_seq'::regclass);
-
-
---
--- Data for Name: accounts; Type: TABLE DATA; Schema: public; Owner: sirs
---
-
-COPY public.accounts (id, username, pass, points) FROM stdin;
-2	Tai	aaa	0
-1	Pedro	aaa	1
-\.
-
-
---
--- Data for Name: binaries; Type: TABLE DATA; Schema: public; Owner: sirs
---
-
-COPY public.binaries (id, bin_fp) FROM stdin;
-1	a
-2	b
-4	c
-\.
-
-
---
--- Data for Name: sessions; Type: TABLE DATA; Schema: public; Owner: sirs
---
-
-COPY public.sessions (user_id, secret) FROM stdin;
-\.
-
-
---
--- Data for Name: submissions; Type: TABLE DATA; Schema: public; Owner: sirs
---
-
-COPY public.submissions (id, user_id, vuln, bin_id) FROM stdin;
-1	1	a	1
-\.
-
-
---
--- Name: accounts_id_seq; Type: SEQUENCE SET; Schema: public; Owner: sirs
---
-
-SELECT pg_catalog.setval('public.accounts_id_seq', 2, true);
-
-
---
--- Name: binaries_id_seq; Type: SEQUENCE SET; Schema: public; Owner: sirs
---
-
-SELECT pg_catalog.setval('public.binaries_id_seq', 17, true);
-
-
---
--- Name: submissions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: sirs
---
-
-SELECT pg_catalog.setval('public.submissions_id_seq', 10, true);
 
 
 --

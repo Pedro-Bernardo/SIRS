@@ -50,13 +50,13 @@ func getUserPoints(username string) int {
 }
 
 //Creates a new user in the database
-func addUser(username string, hashedPassword string) {
+func addUser(username string, hashedPassword string, publicKey string) {
 	db := connDB()
 
-	queryStmt, err := db.Prepare("INSERT INTO accounts (username, pass , points) VALUES ($1,$2,0)")
+	queryStmt, err := db.Prepare("INSERT INTO accounts (username, public_key, pass , points) VALUES ($1,$2,$3,0)")
 
 	//the database itself should error if the username already exists
-	_, err = queryStmt.Exec(username, hashedPassword)
+	_, err = queryStmt.Exec(username, publicKey, hashedPassword)
 
 	if err == nil {
 		log.Println("Successfully created new user!")
@@ -85,6 +85,26 @@ func getUserPasswordHash(username string) string {
 	db.Close()
 
 	return password
+}
+
+//
+func getUserPublicKey(username string) string {
+	//Connects to the database
+	db := connDB()
+	//Does the query
+	queryStmt, err := db.Prepare("	SELECT public_key FROM accounts WHERE username = $1")
+
+	var publicKey string
+	err = queryStmt.QueryRow(username).Scan(&publicKey)
+
+	if err != nil {
+		SQLErrorHandling(err)
+	}
+
+	//Closes the connection to the database
+	db.Close()
+
+	return publicKey
 }
 
 //Creates a new user in the database
