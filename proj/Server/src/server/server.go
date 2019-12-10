@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -76,7 +77,7 @@ type LoginResponse struct {
 type SubmitRequest struct {
 	Signature       string `json:"signature"`
 	Hmac            string `json:"hmac"`
-	SessionID        string `json:"sessionId"`
+	SessionID       string `json:"sessionId"`
 	VulnDescription string `json:"vulnDescription"`
 	Fingerprint     string `json:"fingerprint"`
 }
@@ -233,15 +234,16 @@ func DecryptWithAES(message []byte, key []byte) []byte {
 	//It's common to put it at the beginning of the ciphertext.
 	iv := message[:aes.BlockSize]
 	cipherText := message[aes.BlockSize:]
+	decrytped_message := make([]byte, len(cipherText))
 	fmt.Printf("Data to be decrypted: %v\n", cipherText)
 	fmt.Printf("IV: %v\n", iv)
 
 	mode := cipher.NewCBCDecrypter(keyBlock, iv)
 	// XORKeyStream can work in-place if the two arguments are the same.
-	mode.CryptBlocks(cipherText, cipherText)
-	fmt.Printf("Decrypted cipherText: %v\n", cipherText)
-	fmt.Printf("Decrypted decoded cipherText: %v\n", string(cipherText))
-	decrypted_ciphertext := pkcs7Unpad(cipherText, aes.BlockSize)
+	mode.CryptBlocks(decrytped_message, cipherText)
+	fmt.Printf("Decrypted cipherText: %v\n", decrytped_message)
+	fmt.Printf("Decrypted decoded cipherText: %v\n", string(decrytped_message))
+	decrypted_ciphertext := pkcs7Unpad(decrytped_message, aes.BlockSize)
 
 	return decrypted_ciphertext
 }
@@ -432,7 +434,6 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// fields[2] == first half of Kc
 	clientKey := fields[2] + decryptedKey
 
 	CheckMessageIntegrity(hmacBytes, append(userRequest.EncryptedCredentials, userRequest.EncryptedKey...), hashedPasswdBytes)
@@ -489,7 +490,15 @@ func submitHandler(w http.ResponseWriter, r *http.Request) {
 	// get the session ID
 	var submitRequest SubmitRequest
 	json.NewDecoder(r.Body).Decode(&submitRequest)
-	
+
+	realHashedPasswdBytes, control := db_func.GetUserPasswordHash(sessions[submitRequest.SessionID].Username)
+	if !control {
+		http.Error(w, "Invalid username", http.StatusUnauthorized)
+		// http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		fmt.Fprintf(w, "")
+		return
+	}
+
 	control, err := validateSubmitRequest(submitRequest)
 	if !control {
 		http.Error(w, err, http.StatusBadRequest)
@@ -503,12 +512,31 @@ func submitHandler(w http.ResponseWriter, r *http.Request) {
 	// delete session entry when current function is left
 	defer delete(sessions, submitRequest.SessionID)
 
-	success := db_func.AddSubmission(sessions[submitRequest.SessionID].Username, vuln string, binFP string)
+	_, block_key := HashWithSHA256(sessions[submitRequest.SessionID].DiffieH.Sh_secret.Bytes())
+	decrypted_vuln := string(DecryptWithAES([]byte(submitRequest.VulnDescription), block_key))
+	decrypted_fp := string(DecryptWithAES([]byte(submitRequest.Fingerprint), block_key))
 
-	hashedPasswdBytes := []byte(db_func.GetUserPasswordHash(sessions[showRequest.SessionID].Username))
-	_, block_key := HashWithSHA256(sessions[showRequest.SessionID].DiffieH.Sh_secret.Bytes())
+	if !(regexp.MustCompile(`^[a-zA-Z0-9]+$`).MatchString(decrypted_vuln) && regexp.MustCompile(`^[a-f0-9]+$`).MatchString(decrypted_vuln)) {
+		http.Error(w, "Invalid data: must be alphanumeric", http.StatusBadRequest)
+		// http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		fmt.Fprintf(w, "")
+		return
+	}
+
+	success := db_func.AddSubmission(sessions[submitRequest.SessionID].Username, decrypted_vuln, decrypted_fp)
+
+	_, block_key = HashWithSHA256(sessions[submitRequest.SessionID].DiffieH.Sh_secret.Bytes())
+	var result string
+	if success {
+		result = "OK"
+	} else {
+		result = "NOK"
+	}
+
 	encryptedContent := EncryptWithAES(result, block_key)
-	fmt.Println("Encrypted score data: %v\n", encryptedContent)
+	fmt.Println("Encrypted data: %v\n", encryptedContent)
+
+	hashedPasswdBytes := []byte(realHashedPasswdBytes)
 	hmac := hmacMaker(encryptedContent, hashedPasswdBytes)
 	signature := hex.EncodeToString(SignWithServerKey([]byte(hmac)))
 
@@ -527,16 +555,6 @@ func validateSubmitRequest(req SubmitRequest) (bool, string) {
 	fmt.Printf("ENCRYPTED VulnDescription: %v\n", req.VulnDescription)
 	fmt.Printf("ENCRYPTED Fingerprint: %v\n", req.Fingerprint)
 
-	encrypted_vuln := make([]byte, len(req.VulnDescription))
-	copy(encrypted_vuln, req.VulnDescription)
-
-	encrypted_fp := make([]byte, len(req.Fingerprint))
-	copy(encrypted_fp, req.Fingerprint)
-
-	_, block_key := HashWithSHA256(sessions[req.SessionID].DiffieH.Sh_secret.Bytes())
-	decrypted_vuln := DecryptWithAES(req.VulnDescription, block_key)
-	decrypted_fp := DecryptWithAES(req.Fingerprint, block_key)
-
 	hmacBytes := []byte(req.Hmac)
 	// VerifyClientSignaturePython(username string, hmac []byte, signature []byte)
 	control := VerifyClientSignaturePython(sessions[req.SessionID].Username, hmacBytes, []byte(req.Signature))
@@ -546,8 +564,12 @@ func validateSubmitRequest(req SubmitRequest) (bool, string) {
 		return false, "Failed to verify client signature"
 	}
 
-	hashedPasswdBytes := []byte(db_func.GetUserPasswordHash(sessions[req.SessionID].Username))
-	original_message := []byte(req.SessionID + string(encrypted_fp)+string(encrypted_vuln))
+	realHashedPasswdBytes, control := db_func.GetUserPasswordHash(sessions[req.SessionID].Username)
+	if !control {
+		return false, "Invalid username"
+	}
+	hashedPasswdBytes := []byte(realHashedPasswdBytes)
+	original_message := []byte(req.SessionID + string(req.Fingerprint) + string(req.VulnDescription))
 	control = CheckMessageIntegrity(hmacBytes, original_message, hashedPasswdBytes)
 	if !control {
 		log.Println("Failed to verify message integrity")
@@ -555,9 +577,6 @@ func validateSubmitRequest(req SubmitRequest) (bool, string) {
 	}
 	return true, ""
 }
-
-
-
 
 func showHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("IN SHOW HANDLEEEER\n")
@@ -582,31 +601,26 @@ func showHandler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Printf("Submissions: %v\n", submissions)
 	subs_data := ""
-
-	if len(submissions) != 0 {
-		for _, entry := range submissions {
-			fmt.Printf("entry: %v\n", entry)
-			fmt.Printf("Vulnerability: %v\n", entry.Vuln)
-			fmt.Printf("Binary Fingerprint: %v\n", entry.BinFP)
-			subs_data = subs_data + fmt.Sprintf("%s,%s,", entry.Vuln, entry.BinFP)
-		}
-
-		subs_data = subs_data[:len(subs_data)-1]
-	} else {
-		subs_data = "No submissions"
+	for _, entry := range submissions {
+		fmt.Printf("entry: %v\n", entry)
+		fmt.Printf("Vulnerability: %v\n", entry.Vuln)
+		fmt.Printf("Binary Fingerprint: %v\n", entry.BinFP)
+		subs_data = subs_data + fmt.Sprintf("%s,%s,", entry.Vuln, entry.BinFP)
 	}
+
+	subs_data_final := subs_data[:len(subs_data)-1]
 
 	realHashedPasswdBytes, control := db_func.GetUserPasswordHash(sessions[showRequest.SessionID].Username)
 	if !control {
-		// http.Error(w, err, http.StatusUnauthorized)
-		http.Error(w, "Invalid username", http.StatusUnauthorized)
+		http.Error(w, err, http.StatusBadRequest)
+		// http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		fmt.Fprintf(w, "")
 		return
 	}
 	hashedPasswdBytes := []byte(realHashedPasswdBytes)
 	_, block_key := HashWithSHA256(sessions[showRequest.SessionID].DiffieH.Sh_secret.Bytes())
-	encryptedContent := EncryptWithAES(subs_data, block_key)
-	fmt.Println("Encrypted score data: %v\n", encryptedContent)
+	encryptedContent := EncryptWithAES(subs_data_final, block_key)
+	fmt.Println("Encrypted show data: %v\n", encryptedContent)
 	hmac := hmacMaker(encryptedContent, hashedPasswdBytes)
 	signature := hex.EncodeToString(SignWithServerKey([]byte(hmac)))
 
@@ -624,12 +638,8 @@ func validateRequest(req GenericRequest) (bool, string) {
 	fmt.Printf("SESSION ID: %v\n", req.SessionID)
 	fmt.Printf("ENCRYPTED CONTENT: %v\n", req.EncryptedContent)
 
-	encrypted_content := make([]byte, len(req.EncryptedContent))
-	copy(encrypted_content, req.EncryptedContent)
-
-	realHashedPasswdBytes, control := db_func.GetUserPasswordHash(sessions[req.SessionID].Username)
-	if !control {
-		return false, "Invalid username"
+	if _, ok := sessions[req.SessionID]; !ok {
+		return false, "Invalid session"
 	}
 
 	_, block_key := HashWithSHA256(sessions[req.SessionID].DiffieH.Sh_secret.Bytes())
@@ -649,15 +659,19 @@ func validateRequest(req GenericRequest) (bool, string) {
 	}
 	hmacBytes := []byte(req.Hmac)
 	// VerifyClientSignaturePython(username string, hmac []byte, signature []byte)
-	control = VerifyClientSignaturePython(sessions[req.SessionID].Username, hmacBytes, []byte(req.Signature))
+	control := VerifyClientSignaturePython(sessions[req.SessionID].Username, hmacBytes, []byte(req.Signature))
 	// sessionID + sessionID + Username
 	if !control {
 		log.Println("Failed to verify client signature")
 		return false, "Failed to verify client signature"
 	}
 
+	realHashedPasswdBytes, control := db_func.GetUserPasswordHash(sessions[req.SessionID].Username)
+	if !control {
+		return false, "Invalid username"
+	}
 	hashedPasswdBytes := []byte(realHashedPasswdBytes)
-	original_message := []byte(req.SessionID + string(encrypted_content))
+	original_message := []byte(req.SessionID + string(req.EncryptedContent))
 	control = CheckMessageIntegrity(hmacBytes, original_message, hashedPasswdBytes)
 	if !control {
 		log.Println("Failed to verify message integrity")
@@ -701,8 +715,8 @@ func scoreHandler(w http.ResponseWriter, r *http.Request) {
 
 	realHashedPasswdBytes, control := db_func.GetUserPasswordHash(sessions[scoreRequest.SessionID].Username)
 	if !control {
-		// http.Error(w, err, http.StatusUnauthorized)
-		http.Error(w, "Invalid username", http.StatusUnauthorized)
+		http.Error(w, err, http.StatusBadRequest)
+		// http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		fmt.Fprintf(w, "")
 		return
 	}
