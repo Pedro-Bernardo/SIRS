@@ -14,6 +14,12 @@ type Submission struct {
 	BinFP string
 }
 
+type SubmissionAdmin struct {
+	Vuln  string
+	BinFP string
+	SubID int
+}
+
 type Score struct {
 	Username string
 	Points   int
@@ -156,7 +162,7 @@ func IsAdmin(username string) bool {
 
 //FIXME: duplicates
 //Creates a new user in the database
-func AddSubmission(username string, vuln string, binFP string) {
+func AddSubmission(username string, vuln string, binFP string) bool {
 	db := connDB()
 	//try to add the binary fingerprint
 	queryStmt, err := db.Prepare("INSERT INTO binaries (bin_fp) VALUES ($1)")
@@ -171,19 +177,21 @@ func AddSubmission(username string, vuln string, binFP string) {
 
 	res, err := queryStmt.Exec(vuln, username, binFP)
 
+	defer db.Close()
 	if err != nil {
 		SQLErrorHandling(err)
+		return false
 	} else {
 		count, _ := res.RowsAffected()
 		//query happened without errors but there was nothing to insert
 		if count == 0 {
 			log.Println("Submission not added ...")
+			return false
 		} else {
 			log.Println("Successfully created a new Submission!")
+			return true
 		}
 	}
-	db.Close()
-
 }
 
 func GetUserSubmissions(username string) []Submission {
@@ -244,30 +252,31 @@ func GetScoreboard() []Score {
 	return scoreboard
 }
 
-func AdminGetAllSubmissions() map[string][]Submission {
+func AdminGetAllSubmissions() map[string][]SubmissionAdmin {
 	//Connects to the database
 	db := connDB()
 	//Does the query
-	queryStmt, err := db.Prepare("SELECT username,vuln,bin_fp FROM (SELECT submissions.id,user_id,vuln,bin_fp FROM submissions INNER JOIN binaries ON submissions.bin_id = binaries.id) AS subs INNER JOIN accounts ON accounts.id = subs.user_id")
+	queryStmt, err := db.Prepare("SELECT username,vuln,bin_fp,subs.sub_id FROM (SELECT submissions.id AS sub_id, user_id, vuln, bin_fp FROM submissions INNER JOIN binaries ON submissions.bin_id = binaries.id) AS subs INNER JOIN accounts ON accounts.id = subs.user_id")
 
 	rows, err := queryStmt.Query()
 	defer rows.Close()
 
-	submissions := make(map[string][]Submission, 0)
+	submissions := make(map[string][]SubmissionAdmin, 0)
 	for rows.Next() {
 		var username string
 		var vuln string
 		var binFP string
+		var subID int
 
-		if err := rows.Scan(&username, &vuln, &binFP); err != nil {
+		if err := rows.Scan(&username, &vuln, &binFP, &subID); err != nil {
 			log.Fatal(err)
 		}
 
 		//checks if already exists
 		if _, ok := submissions[username]; ok {
-			submissions[username] = append(submissions[username], Submission{Vuln: vuln, BinFP: binFP})
+			submissions[username] = append(submissions[username], SubmissionAdmin{Vuln: vuln, BinFP: binFP, SubID: subID})
 		} else {
-			submissions[username] = []Submission{Submission{Vuln: vuln, BinFP: binFP}}
+			submissions[username] = []SubmissionAdmin{SubmissionAdmin{Vuln: vuln, BinFP: binFP, SubID: subID}}
 		}
 
 	}

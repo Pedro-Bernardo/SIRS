@@ -76,6 +76,7 @@ type LoginResponse struct {
 type SubmitRequest struct {
 	Signature       string `json:"signature"`
 	Hmac            string `json:"hmac"`
+	SessionID        string `json:"sessionId"`
 	VulnDescription string `json:"vulnDescription"`
 	Fingerprint     string `json:"fingerprint"`
 }
@@ -454,14 +455,80 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func submitHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("submit handler")
-	var userRequest SubmitRequest
-	json.NewDecoder(r.Body).Decode(&userRequest)
 
-	log.Printf("submit request for: %v", userRequest.VulnDescription)
+	fmt.Printf("IN SUBMIT HANDLEEEER\n")
+	// get the session ID
+	var submitRequest SubmitRequest
+	json.NewDecoder(r.Body).Decode(&submitRequest)
+	
+	control, err := validateSubmitRequest(submitRequest)
+	if !control {
+		http.Error(w, err, http.StatusBadRequest)
+		// http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		fmt.Fprintf(w, "")
+		return
+	}
+
+	log.Print("After verifications")
+
+	// delete session entry when current function is left
+	defer delete(sessions, submitRequest.SessionID)
+
+	success := db_func.AddSubmission(sessions[submitRequest.SessionID].Username, vuln string, binFP string)
+
+	hashedPasswdBytes := []byte(db_func.GetUserPasswordHash(sessions[showRequest.SessionID].Username))
+	_, block_key := HashWithSHA256(sessions[showRequest.SessionID].DiffieH.Sh_secret.Bytes())
+	encryptedContent := EncryptWithAES(result, block_key)
+	fmt.Println("Encrypted score data: %v\n", encryptedContent)
+	hmac := hmacMaker(encryptedContent, hashedPasswdBytes)
+	signature := hex.EncodeToString(SignWithServerKey([]byte(hmac)))
+
+	response := GenericResponse{
+		Hmac:             hmac,
+		Signature:        signature,
+		EncryptedContent: encryptedContent}
+	json.NewEncoder(w).Encode(response)
 
 	fmt.Fprintf(w, "")
 }
+
+func validateSubmitRequest(req SubmitRequest) (bool, string) {
+	fmt.Printf("Received: %v\n", req)
+	fmt.Printf("SESSION ID: %v\n", req.SessionID)
+	fmt.Printf("ENCRYPTED VulnDescription: %v\n", req.VulnDescription)
+	fmt.Printf("ENCRYPTED Fingerprint: %v\n", req.Fingerprint)
+
+	encrypted_vuln := make([]byte, len(req.VulnDescription))
+	copy(encrypted_vuln, req.VulnDescription)
+
+	encrypted_fp := make([]byte, len(req.Fingerprint))
+	copy(encrypted_fp, req.Fingerprint)
+
+	_, block_key := HashWithSHA256(sessions[req.SessionID].DiffieH.Sh_secret.Bytes())
+	decrypted_vuln := DecryptWithAES(req.VulnDescription, block_key)
+	decrypted_fp := DecryptWithAES(req.Fingerprint, block_key)
+
+	hmacBytes := []byte(req.Hmac)
+	// VerifyClientSignaturePython(username string, hmac []byte, signature []byte)
+	control := VerifyClientSignaturePython(sessions[req.SessionID].Username, hmacBytes, []byte(req.Signature))
+	// sessionID + sessionID + Username
+	if !control {
+		log.Println("Failed to verify client signature")
+		return false, "Failed to verify client signature"
+	}
+
+	hashedPasswdBytes := []byte(db_func.GetUserPasswordHash(sessions[req.SessionID].Username))
+	original_message := []byte(req.SessionID + string(encrypted_fp)+string(encrypted_vuln))
+	control = CheckMessageIntegrity(hmacBytes, original_message, hashedPasswdBytes)
+	if !control {
+		log.Println("Failed to verify message integrity")
+		return false, "Failed to verify message integrity"
+	}
+	return true, ""
+}
+
+
+
 
 func showHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("IN SHOW HANDLEEEER\n")
