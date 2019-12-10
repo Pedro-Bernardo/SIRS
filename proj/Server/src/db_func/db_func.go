@@ -9,7 +9,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type submission struct {
+type Submission struct {
 	vuln  string
 	binFP string
 }
@@ -186,7 +186,7 @@ func AddSubmission(username string, vuln string, binFP string) {
 
 }
 
-func GetUserSubmissions(username string) []submission {
+func GetUserSubmissions(username string) []Submission {
 	//Connects to the database
 	db := connDB()
 	//Does the query
@@ -195,7 +195,7 @@ func GetUserSubmissions(username string) []submission {
 	rows, err := queryStmt.Query(username)
 	defer rows.Close()
 
-	submissions := make([]submission, 0)
+	submissions := make([]Submission, 0)
 	for rows.Next() {
 		var vuln string
 		var binFP string
@@ -203,7 +203,7 @@ func GetUserSubmissions(username string) []submission {
 			log.Fatal(err)
 		}
 
-		submissions = append(submissions, submission{vuln: vuln, binFP: binFP})
+		submissions = append(submissions, Submission{vuln: vuln, binFP: binFP})
 	}
 	if err != nil {
 		SQLErrorHandling(err)
@@ -244,7 +244,7 @@ func GetScoreboard() []Score {
 	return scoreboard
 }
 
-func AdminGetAllSubmissions() map[string][]submission {
+func AdminGetAllSubmissions() map[string][]Submission {
 	//Connects to the database
 	db := connDB()
 	//Does the query
@@ -253,7 +253,7 @@ func AdminGetAllSubmissions() map[string][]submission {
 	rows, err := queryStmt.Query()
 	defer rows.Close()
 
-	submissions := make(map[string][]submission, 0)
+	submissions := make(map[string][]Submission, 0)
 	for rows.Next() {
 		var username string
 		var vuln string
@@ -265,9 +265,9 @@ func AdminGetAllSubmissions() map[string][]submission {
 
 		//checks if already exists
 		if _, ok := submissions[username]; ok {
-			submissions[username] = append(submissions[username], submission{vuln: vuln, binFP: binFP})
+			submissions[username] = append(submissions[username], Submission{vuln: vuln, binFP: binFP})
 		} else {
-			submissions[username] = []submission{submission{vuln: vuln, binFP: binFP}}
+			submissions[username] = []Submission{Submission{vuln: vuln, binFP: binFP}}
 		}
 
 	}

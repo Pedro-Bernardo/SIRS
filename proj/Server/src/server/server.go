@@ -463,6 +463,50 @@ func submitHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func showHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("IN SHOW HANDLEEEER\n")
+	// get the session ID
+	var showRequest GenericRequest
+	json.NewDecoder(r.Body).Decode(&showRequest)
+
+	control, err := validateRequest(showRequest)
+	if !control {
+		http.Error(w, err, http.StatusBadRequest)
+		// http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		fmt.Fprintf(w, "")
+		return
+	}
+
+	log.Print("After verifications")
+
+	// delete session entry when current function is left
+	defer delete(sessions, showRequest.SessionID)
+
+	submissions := db_func.GetUserSubmissions()
+
+	fmt.Printf("Submissions: %v\n", submissions)
+	subs_data := ""
+	for _, entry := range submissions {
+		fmt.Printf("entry: %v\n", entry)
+		fmt.Printf("Vulnerability: %v\n", entry.vuln)
+		fmt.Printf("Binary Fingerprint: %v\n", entry.binFP)
+		subs_data = subs_data + fmt.Sprintf("%s,%s,", entry.vuln, entry.binFP)
+	}
+
+	subs_data_final := subs_data[:len(subs_data)-1]
+
+	hashedPasswdBytes := []byte(db_func.GetUserPasswordHash(sessions[showRequest.SessionID].Username))
+	_, block_key := HashWithSHA256(sessions[showRequest.SessionID].DiffieH.Sh_secret.Bytes())
+	encryptedContent := EncryptWithAES(subs_data_final, block_key)
+	fmt.Println("Encrypted score data: %v\n", encryptedContent)
+	hmac := hmacMaker(encryptedContent, hashedPasswdBytes)
+	signature := hex.EncodeToString(SignWithServerKey([]byte(hmac)))
+
+	response := GenericResponse{
+		Hmac:             hmac,
+		Signature:        signature,
+		EncryptedContent: encryptedContent}
+	json.NewEncoder(w).Encode(response)
+
 	fmt.Fprintf(w, "")
 }
 
