@@ -86,13 +86,13 @@ type SubmitResponse struct {
 	Status    string `json:"status"`
 }
 
-type ScoreResponse struct {
-	Signature string `json:"signature"`
-	Hmac      string `json:"hmac"`
-	ScoreList []byte `json:"scoreList"`
+type GenericResponse struct {
+	Signature        string `json:"signature"`
+	Hmac             string `json:"hmac"`
+	EncryptedContent []byte `json:"encryptedContent"`
 }
 
-type ScoreRequest struct {
+type GenericRequest struct {
 	Signature        string `json:"signature"`
 	Hmac             string `json:"hmac"`
 	EncryptedContent []byte `json:"encryptedContent"`
@@ -358,6 +358,10 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	var userRequest RegisterRequest
 	json.NewDecoder(r.Body).Decode(&userRequest)
 
+	if len(userRequest.Username) == 0 {
+		// deny creation, return error
+	}
+
 	decodedPublicKey, err := base64.StdEncoding.DecodeString(userRequest.PublicKey)
 	if err != nil {
 		log.Fatal(err)
@@ -462,60 +466,66 @@ func showHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "")
 }
 
-func scoreHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("IN SCOREBOARD HANDLEEEER\n")
-	// get the session ID
-	var scoreRequest ScoreRequest
-	json.NewDecoder(r.Body).Decode(&scoreRequest)
-	fmt.Printf("Received: %v\n", scoreRequest)
-	fmt.Printf("SESSION ID: %v\n", scoreRequest.SessionID)
-	fmt.Printf("ENCRYPTED CONTENT: %v\n", scoreRequest.EncryptedContent)
+func validateRequest(req GenericRequest) (bool, string) {
+	fmt.Printf("Received: %v\n", req)
+	fmt.Printf("SESSION ID: %v\n", req.SessionID)
+	fmt.Printf("ENCRYPTED CONTENT: %v\n", req.EncryptedContent)
 
-	// delete session entry when current function is left
-	defer delete(sessions, scoreRequest.SessionID)
+	encrypted_content := make([]byte, len(req.EncryptedContent))
+	copy(encrypted_content, req.EncryptedContent)
 
-	encrypted_content := make([]byte, len(scoreRequest.EncryptedContent))
-	copy(encrypted_content, scoreRequest.EncryptedContent)
-
-	_, block_key := HashWithSHA256(sessions[scoreRequest.SessionID].DiffieH.Sh_secret.Bytes())
-	decrypted := DecryptWithAES(scoreRequest.EncryptedContent, block_key)
+	_, block_key := HashWithSHA256(sessions[req.SessionID].DiffieH.Sh_secret.Bytes())
+	decrypted := DecryptWithAES(req.EncryptedContent, block_key)
 
 	decrypted_sessionID := decrypted[:16]
 	decrypted_username := decrypted[16:]
 
-	if bytes.Compare(decrypted_sessionID, []byte(scoreRequest.SessionID)) != 0 {
+	if bytes.Compare(decrypted_sessionID, []byte(req.SessionID)) != 0 {
 		log.Println("Session ID's do not match")
-		fmt.Fprintf(w, "Session ID's do not match")
-		return
+		return false, "Session ID's do not match"
 	}
 
-	if bytes.Compare(decrypted_username, []byte(sessions[scoreRequest.SessionID].Username)) != 0 {
+	if bytes.Compare(decrypted_username, []byte(sessions[req.SessionID].Username)) != 0 {
 		log.Println("Usernames do not match")
-		fmt.Fprintf(w, "Usernames do not match")
-		return
+		return false, "Usernames do not match"
 	}
-	hmacBytes := []byte(scoreRequest.Hmac)
+	hmacBytes := []byte(req.Hmac)
 	// VerifyClientSignaturePython(username string, hmac []byte, signature []byte)
-	control := VerifyClientSignaturePython(sessions[scoreRequest.SessionID].Username, hmacBytes, []byte(scoreRequest.Signature))
+	control := VerifyClientSignaturePython(sessions[req.SessionID].Username, hmacBytes, []byte(req.Signature))
 	// sessionID + sessionID + Username
 	if !control {
 		log.Println("Failed to verify client signature")
-		fmt.Fprintf(w, "Failed to verify client signature")
-		return
+		return false, "Failed to verify client signature"
 	}
 
-	hashedPasswdBytes := []byte(db_func.GetUserPasswordHash(sessions[scoreRequest.SessionID].Username))
-	original_message := []byte(scoreRequest.SessionID + string(encrypted_content))
-	log.Printf("HMAC'D message: %v\n", original_message)
-	log.Printf("HMAC'D message (string): %v\n", string(original_message))
+	hashedPasswdBytes := []byte(db_func.GetUserPasswordHash(sessions[req.SessionID].Username))
+	original_message := []byte(req.SessionID + string(encrypted_content))
 	control = CheckMessageIntegrity(hmacBytes, original_message, hashedPasswdBytes)
 	if !control {
 		log.Println("Failed to verify message integrity")
-		fmt.Fprintf(w, "Failed to verify message integrity")
+		return false, "Failed to verify message integrity"
+	}
+	return true, ""
+}
+
+func scoreHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("IN SCOREBOARD HANDLEEEER\n")
+	// get the session ID
+	var scoreRequest GenericRequest
+	json.NewDecoder(r.Body).Decode(&scoreRequest)
+
+	control, err := validateRequest(scoreRequest)
+	if !control {
+		http.Error(w, err, http.StatusBadRequest)
+		// http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		fmt.Fprintf(w, "")
 		return
 	}
 
 	log.Print("After verifications")
+
+	// delete session entry when current function is left
+	defer delete(sessions, scoreRequest.SessionID)
 
 	scoreboard := db_func.GetScoreboard()
 
@@ -531,20 +541,20 @@ func scoreHandler(w http.ResponseWriter, r *http.Request) {
 
 	score_data_final := score_data[:len(score_data)-1]
 
-	_, block_key = HashWithSHA256(sessions[scoreRequest.SessionID].DiffieH.Sh_secret.Bytes())
+	hashedPasswdBytes := []byte(db_func.GetUserPasswordHash(sessions[scoreRequest.SessionID].Username))
+	_, block_key := HashWithSHA256(sessions[scoreRequest.SessionID].DiffieH.Sh_secret.Bytes())
 	encryptedContent := EncryptWithAES(score_data_final, block_key)
 	fmt.Println("Encrypted score data: %v\n", encryptedContent)
 	hmac := hmacMaker(encryptedContent, hashedPasswdBytes)
 	signature := hex.EncodeToString(SignWithServerKey([]byte(hmac)))
 
-	response := ScoreResponse{
-		Hmac:      hmac,
-		Signature: signature,
-		ScoreList: encryptedContent}
+	response := GenericResponse{
+		Hmac:             hmac,
+		Signature:        signature,
+		EncryptedContent: encryptedContent}
 	json.NewEncoder(w).Encode(response)
 
 	fmt.Fprintf(w, "")
-
 }
 
 func removeUserHandler(w http.ResponseWriter, r *http.Request) {
