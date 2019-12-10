@@ -291,13 +291,14 @@ func AdminGetAllSubmissions() map[string][]SubmissionAdmin {
 	return submissions
 }
 
-func AdminDeleteSubmission(username string, vuln string, binFP string) {
+func AdminDeleteSubmission(subID int) {
 	//Connects to the database
 	db := connDB()
 
 	//Does the query
-	queryStmt, err := db.Prepare("DELETE FROM submissions USING (SELECT subs.id FROM (SELECT submissions.id,user_id,vuln,bin_fp FROM submissions INNER JOIN binaries ON submissions.bin_id = binaries.id) AS subs INNER JOIN accounts ON accounts.id = subs.user_id WHERE accounts.username = $1 AND subs.vuln=$2 AND subs.bin_fp=$3) AS tmp WHERE tmp.id = submissions.id")
-	_, err = queryStmt.Exec(username, vuln, binFP)
+	// queryStmt, err := db.Prepare("DELETE FROM submissions USING (SELECT subs.id FROM (SELECT submissions.id,user_id,vuln,bin_fp FROM submissions INNER JOIN binaries ON submissions.bin_id = binaries.id) AS subs INNER JOIN accounts ON accounts.id = subs.user_id WHERE accounts.username = $1 AND subs.vuln=$2 AND subs.bin_fp=$3) AS tmp WHERE tmp.id = submissions.id")
+	queryStmt, err := db.Prepare("DELETE FROM submissions USING (SELECT id FROM submissions WHERE submissions.id = $1")
+	_, err = queryStmt.Exec(subID)
 
 	if err != nil {
 		SQLErrorHandling(err)
