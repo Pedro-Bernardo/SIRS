@@ -383,9 +383,26 @@ class Client:
         json_request = self.create_http_request_json(encrypted_data,
                                                     hashed_passwd, self.session_id, self.username)
 
+        print(json_request)
         response = self.create_http_connection('POST', '/score', json_request)
         
-        print(response)
+        print("http response: {}".format(response))
+
+        hmac_response = response['hmac']
+        signature = response['signature']
+        print("HMAC ", hmac_response)
+        print("SIGNATURE ", signature)
+        encrypted_score_list = response['scoreList']
+        print('encrypted_score_list: {}'.format(encrypted_score_list))
+        decoded_encrypted_score_list = b64decode(encrypted_score_list)
+        self.check_message_integrity(hmac_response, hashed_passwd, decoded_encrypted_score_list)
+        self.verify_server_signature(hmac_response, signature)
+
+        # process to generate key for client to encrypt following request message
+
+        decrypted_content = self.decrypt_with_dh_symmetric_key(decoded_encrypted_score_list)
+        print('decrypted_content: {}'.format(decrypted_content.decode()))
+
 
     # /admin/remove_user
     def remove_user(self):

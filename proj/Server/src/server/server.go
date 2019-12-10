@@ -32,10 +32,14 @@ import (
 	"time"
 )
 
-var dh *dh_go.DH
+// var dh *dh_go.DH
 
-var userKey *rsa.PublicKey
-var userKeyString []byte
+var sessions = make(map[string]Session)
+
+type Session struct {
+	Username string
+	DiffieH  *dh_go.DH
+}
 
 type VerifyStruct struct {
 	Username  string `json:"username"`
@@ -83,9 +87,9 @@ type SubmitResponse struct {
 }
 
 type ScoreResponse struct {
-	Signature string          `json:"signature"`
-	Hmac      string          `json:"hmac"`
-	ScoreList []db_func.Score `json:"scoreList"`
+	Signature string `json:"signature"`
+	Hmac      string `json:"hmac"`
+	ScoreList []byte `json:"scoreList"`
 }
 
 type ScoreRequest struct {
@@ -145,14 +149,14 @@ func SignWithServerKey(data []byte) []byte {
 	return signed
 }
 
-/*func LoadClientPubKeyFromDatabase(username string) *rsa.PublicKey {
+/*func BytesToPublicKey(username string) *rsa.PublicKey {
     // obtain keytext from database
 
     parseResult, _ := x509.ParsePKCS8PrivateKey(block.Bytes)
     publicKey := parseResult.(*rsa.PublicKey)
 }*/
 
-func LoadClientPubKeyFromDatabase(block []byte) *rsa.PublicKey {
+func BytesToPublicKey(block []byte) *rsa.PublicKey {
 	publicPem, _ := pem.Decode(block)
 	if publicPem == nil {
 		log.Fatal("Client's public key is not in pem format")
@@ -179,11 +183,10 @@ func DecryptWithPrivateKey(encryptedMessage []byte, privKey *rsa.PrivateKey) str
 }
 
 // using symmetric key generated (size = 256 bits)
-func EncryptWithDHKey(message string) []byte {
+func EncryptWithAES(message string, key []byte) []byte {
 	//cipher, err := aes.NewCipher(dh.Sh_secret.Bytes())
-	log.Printf("secret dh key size %v", len(dh.Sh_secret.Bytes()))
-	log.Printf("secret dh key size %v", dh.Sh_secret)
-	_, key := HashWithSHA256(dh.Sh_secret.Bytes())
+	// log.Printf("secret dh key size %v", len(dh.Sh_secret.Bytes()))
+	// log.Printf("secret dh key size %v", dh.Sh_secret)
 	keyBlock, err := aes.NewCipher(key)
 	if err != nil {
 		log.Fatal(err)
@@ -213,10 +216,8 @@ func EncryptWithDHKey(message string) []byte {
 	return buffer
 }
 
-func DecryptWithDHKey(message []byte, key []byte) []byte {
-	// DECRYPT WITH THE FOLLOWING KEY:
-	_, block_key := HashWithSHA256(key)
-	keyBlock, err := aes.NewCipher(block_key)
+func DecryptWithAES(message []byte, key []byte) []byte {
+	keyBlock, err := aes.NewCipher(key)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -287,8 +288,7 @@ func VerifyClientSignaturePython(username string, hmac []byte, signature []byte)
 
 	fmt.Println(file.Name()) // For example "dir/prefix054003078"
 
-	fmt.Println(userKeyString)
-	verify_struct := VerifyStruct{username, string(hmac), string(signature), userKeyString}
+	verify_struct := VerifyStruct{username, string(hmac), string(signature), []byte(db_func.GetUserPublicKey(username))}
 
 	data, write_err := json.MarshalIndent(verify_struct, "", " ")
 
@@ -304,9 +304,6 @@ func VerifyClientSignaturePython(username string, hmac []byte, signature []byte)
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Printf("OUTPUT: %v", string(out))
-	fmt.Printf("OUTPUT: %v", out)
-
 	return strings.TrimSuffix(string(out), "\n") == "True"
 }
 
@@ -319,36 +316,33 @@ func HashWithSHA256(textToHash []byte) (crypto.Hash, []byte) {
 	return newhash, hashed
 }
 
-//func VerifyClientSignature(username string, hashedPasswd []byte, hmac []byte, signature []byte) {
-func VerifyClientSignature(hashedPasswd []byte, hmac []byte, signature []byte) {
-	// load client's public key from database and parse into key
+// //func VerifyClientSignature(username string, hashedPasswd []byte, hmac []byte, signature []byte) {
+// func VerifyClientSignature(username string, hashedPasswd []byte, hmac []byte, signature []byte) {
+// 	// load client's public key from database and parse into key
 
-	//publicKey := LoadClientPubKeyFromDatabase(username)
+// 	//publicKey := BytesToPublicKey(username)
 
-	//log.Printf("hmac %v", string(hmac));
-	//encodedExpectedHmac := hex.EncodeToString(hmac);
-	//log.Printf("encodedExpectedHmac %v", encodedExpectedHmac);
+// 	//log.Printf("hmac %v", string(hmac));
+// 	//encodedExpectedHmac := hex.EncodeToString(hmac);
+// 	//log.Printf("encodedExpectedHmac %v", encodedExpectedHmac);
 
-	newhash, hashedHmac := HashWithSHA256(hmac)
+// 	newhash, hashedHmac := HashWithSHA256(hmac)
 
-	log.Printf("hashedhmac %v", hashedHmac[:])
-	//verifyErr := rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hashedHmac[:], signature)
-	verifyErr := rsa.VerifyPSS(userKey, newhash, hashedHmac, signature, nil)
-	if verifyErr != nil {
-		log.Fatal(verifyErr)
-	}
-	log.Printf("Message signature verified!")
-}
+// 	userKey := BytesToPublicKey(db_func.GetUserPublicKey(username))
+// 	log.Printf("hashedhmac %v", hashedHmac[:])
+// 	//verifyErr := rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hashedHmac[:], signature)
+// 	verifyErr := rsa.VerifyPSS(userKey, newhash, hashedHmac, signature, nil)
+// 	if verifyErr != nil {
+// 		log.Fatal(verifyErr)
+// 	}
+// 	log.Printf("Message signature verified!")
+// }
 
-func CheckMessageIntegrity(messageHmac []byte, encryptedMessage []byte, hashedPasswd []byte) {
+func CheckMessageIntegrity(messageHmac []byte, encryptedMessage []byte, hashedPasswd []byte) bool {
 	// does the hmac of the encrypted message content received to check if the hmac's the same in the signature
 	encodedExpectedHmac := hmacMaker(encryptedMessage, hashedPasswd)
 
-	integrityChecks := hmac.Equal(messageHmac, []byte(encodedExpectedHmac))
-	if integrityChecks == false {
-		log.Fatal("Integrity violated!")
-	}
-	log.Printf("Message integrity checked!")
+	return hmac.Equal(messageHmac, []byte(encodedExpectedHmac))
 }
 
 func hmacMaker(encryptedMessage []byte, hashedPasswd []byte) string {
@@ -369,16 +363,14 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 
-	userKeyString = decodedPublicKey
-
 	log.Printf("userkey %v", string(decodedPublicKey))
-	userKey = LoadClientPubKeyFromDatabase(decodedPublicKey)
+	// userKey = BytesToPublicKey(decodedPublicKey)
 
 	log.Printf("register request from: %v", userRequest.Username)
 
 	// TODO falta aqui a parte da base de dados: guardar user data
 	// CHANGE DATABASE TO KEEP USER PUBLIC KEY????
-	db_func.AddUser(userRequest.Username, userRequest.HashedPasswd, string(userKeyString))
+	db_func.AddUser(userRequest.Username, userRequest.HashedPasswd, string(decodedPublicKey))
 
 	// fmt.Fprintf(w, "")
 	fmt.Fprintf(w, "Request body: %+v", userRequest.Username)
@@ -408,44 +400,47 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	// fields[2] == first half of Kc
 	clientKey := fields[2] + decryptedKey
 
-	Kc := new(big.Int)
-	Kc.SetBytes([]byte(clientKey))
-	log.Printf("Kc %v\n", Kc)
-
 	CheckMessageIntegrity(hmacBytes, append(userRequest.EncryptedCredentials, userRequest.EncryptedKey...), hashedPasswdBytes)
 
 	authenic := VerifyClientSignaturePython(username, hmacBytes, signatureBytes)
 	log.Printf("Authentic message? %v", authenic)
 
-	dh.GenSecret()
-	log.Printf("after gensecret")
-	dh.CalcPublic()
-	log.Printf("after calcpublic")
-	dh.CalcSahredSecret(Kc.String())
+	sessionId := StringWithCharset(16)
 
+	sessions[sessionId] = Session{
+		Username: username,
+		DiffieH: dh_go.New("2",
+			"2410312426921032588552076022197566074856950548502459942654116941958108831682612228890093858261341614673227141477904012196503648957050582631942730706805009223062734745341073406696246014589361659774041027169249453200378729434170325843778659198143763193776859869524088940195577346119843545301547043747207749969763750084308926339295559968882457872412993810129130294592999947926365264059284647209730384947211681434464714438488520940127459844288859336526896320919633919")}
+
+	Kc := new(big.Int)
+	Kc.SetBytes([]byte(clientKey))
+	log.Printf("Kc %v\n", Kc)
+
+	sessions[sessionId].DiffieH.GenSecret()
+	sessions[sessionId].DiffieH.CalcPublic()
+	sessions[sessionId].DiffieH.CalcSahredSecret(Kc.String())
 	log.Printf("after dh")
 
-	log.Printf("k: %v", dh.Sh_secret)
+	log.Printf("k: %v", sessions[sessionId].DiffieH.Sh_secret)
 
 	w.Header().Set("Content-Type", "application/json")
 
-	sessionId := StringWithCharset(16)
-
-	content := dh.Public.Text(10) + "," + sessionId
+	content := sessions[sessionId].DiffieH.Public.Text(10) + "," + sessionId
 	log.Printf("content %v ", content)
 
 	// block size is always 128 bits (16 bytes), so iv size is 128 bits (16 bytes)
-	encryptedContent := EncryptWithDHKey(content)
+	_, block_key := HashWithSHA256(sessions[sessionId].DiffieH.Sh_secret.Bytes())
+	encryptedContent := EncryptWithAES(content, block_key)
 
 	hmac_response := hmacMaker(encryptedContent, hashedPasswdBytes)
 	log.Printf("hmac %v", hmac_response)
-	sigg := hex.EncodeToString(SignWithServerKey([]byte(hmac_response)))
+	signature := hex.EncodeToString(SignWithServerKey([]byte(hmac_response)))
 
-	log.Printf("SIGNATURE: %v", sigg)
+	log.Printf("SIGNATURE: %v", signature)
 	response := LoginResponse{
-		Signature:        sigg,
+		Signature:        signature,
 		Hmac:             hmac_response,
-		DHServerKey:      dh.Public.Text(10),
+		DHServerKey:      sessions[sessionId].DiffieH.Public.Text(10),
 		EncryptedContent: encryptedContent}
 
 	json.NewEncoder(w).Encode(response)
@@ -469,7 +464,6 @@ func showHandler(w http.ResponseWriter, r *http.Request) {
 
 func scoreHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("IN SCOREBOARD HANDLEEEER\n")
-
 	// get the session ID
 	var scoreRequest ScoreRequest
 	json.NewDecoder(r.Body).Decode(&scoreRequest)
@@ -477,31 +471,53 @@ func scoreHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("SESSION ID: %v\n", scoreRequest.SessionID)
 	fmt.Printf("ENCRYPTED CONTENT: %v\n", scoreRequest.EncryptedContent)
 
-	decrypted := DecryptWithDHKey(scoreRequest.EncryptedContent, dh.Sh_secret.Bytes())
+	// delete session entry when current function is left
+	defer delete(sessions, scoreRequest.SessionID)
+
+	encrypted_content := make([]byte, len(scoreRequest.EncryptedContent))
+	copy(encrypted_content, scoreRequest.EncryptedContent)
+
+	_, block_key := HashWithSHA256(sessions[scoreRequest.SessionID].DiffieH.Sh_secret.Bytes())
+	decrypted := DecryptWithAES(scoreRequest.EncryptedContent, block_key)
 
 	decrypted_sessionID := decrypted[:16]
 	decrypted_username := decrypted[16:]
 
 	if bytes.Compare(decrypted_sessionID, []byte(scoreRequest.SessionID)) != 0 {
 		log.Println("Session ID's do not match")
+		fmt.Fprintf(w, "Session ID's do not match")
+		return
 	}
 
-	// go to the table and check the username corresponding to the sessionID
-	// then get the get the key from the DB and verify the client signature
-	// get the hashed password and verify the HMAC
-	// if all goes well, encrypt the score data, calculate the hmac, sign it and
-	// send it to the user
+	if bytes.Compare(decrypted_username, []byte(sessions[scoreRequest.SessionID].Username)) != 0 {
+		log.Println("Usernames do not match")
+		fmt.Fprintf(w, "Usernames do not match")
+		return
+	}
+	hmacBytes := []byte(scoreRequest.Hmac)
+	// VerifyClientSignaturePython(username string, hmac []byte, signature []byte)
+	control := VerifyClientSignaturePython(sessions[scoreRequest.SessionID].Username, hmacBytes, []byte(scoreRequest.Signature))
+	// sessionID + sessionID + Username
+	if !control {
+		log.Println("Failed to verify client signature")
+		fmt.Fprintf(w, "Failed to verify client signature")
+		return
+	}
 
-	fmt.Printf("DECRYPTEEEED: %v\n", decrypted)
+	hashedPasswdBytes := []byte(db_func.GetUserPasswordHash(sessions[scoreRequest.SessionID].Username))
+	original_message := []byte(scoreRequest.SessionID + string(encrypted_content))
+	log.Printf("HMAC'D message: %v\n", original_message)
+	log.Printf("HMAC'D message (string): %v\n", string(original_message))
+	control = CheckMessageIntegrity(hmacBytes, original_message, hashedPasswdBytes)
+	if !control {
+		log.Println("Failed to verify message integrity")
+		fmt.Fprintf(w, "Failed to verify message integrity")
+		return
+	}
+
+	log.Print("After verifications")
 
 	scoreboard := db_func.GetScoreboard()
-
-	// get the scores
-	// encrypt with session key
-	// build hmac
-	// create signature
-	// delete session key and session id
-	// build ScoreResponse with data
 
 	fmt.Printf("Scoreboard: %v\n", scoreboard)
 	score_data := ""
@@ -514,31 +530,21 @@ func scoreHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	score_data_final := score_data[:len(score_data)-1]
-	// hashedPasswdBytes := []byte(db_func.GetUserPasswordHash())
-	encryptedContent := EncryptWithDHKey(score_data_final)
+
+	_, block_key = HashWithSHA256(sessions[scoreRequest.SessionID].DiffieH.Sh_secret.Bytes())
+	encryptedContent := EncryptWithAES(score_data_final, block_key)
 	fmt.Println("Encrypted score data: %v\n", encryptedContent)
-	// hmac := hmacMaker(encryptedContent, hashedPasswdBytes)
+	hmac := hmacMaker(encryptedContent, hashedPasswdBytes)
+	signature := hex.EncodeToString(SignWithServerKey([]byte(hmac)))
 
-	// data, write_err := json.MarshalIndent(verify_struct, "", " ")
+	response := ScoreResponse{
+		Hmac:      hmac,
+		Signature: signature,
+		ScoreList: encryptedContent}
+	json.NewEncoder(w).Encode(response)
 
-	// write_err = ioutil.WriteFile(file.Name(), data, 0644)
-	// if write_err != nil {
-	// 	log.Fatal(write_err)
-	// }
+	fmt.Fprintf(w, "")
 
-	// type ScoreResponse struct {
-	// 	Signature string          `json:"signature"`
-	// 	Hmac      string          `json:"hmac"`
-	// 	ScoreList []db_func.Score `json:"scoreList"`
-	// }
-
-	// response := LoginResponse{
-	// 	Hmac:             hmacMaker(encryptedContent, hashedPasswdBytes),
-	// 	DHServerKey:      dh.Public.Text(10),
-	// 	EncryptedContent: encryptedContent}
-	// json.NewEncoder(w).Encode(response)
-
-	// fmt.Fprintf(w, "Request body: %+v", userRequest.Username)
 }
 
 func removeUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -551,9 +557,6 @@ func removeSubmissionHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	finish := make(chan bool)
-	dh = dh_go.New(
-		"2",
-		"2410312426921032588552076022197566074856950548502459942654116941958108831682612228890093858261341614673227141477904012196503648957050582631942730706805009223062734745341073406696246014589361659774041027169249453200378729434170325843778659198143763193776859869524088940195577346119843545301547043747207749969763750084308926339295559968882457872412993810129130294592999947926365264059284647209730384947211681434464714438488520940127459844288859336526896320919633919")
 
 	mux_http := http.NewServeMux()
 	mux_http.HandleFunc("/login", loginHandler)
