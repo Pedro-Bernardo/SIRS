@@ -150,6 +150,21 @@ class Client:
 
         return json.dumps(request)
 
+    def create_http_request_submit(self, encrypted_fp, encrypted_vuln, hashed_passwd, session_id, username):
+        # Sign(HMAC)
+        hmac_request = self.hmac_maker(hashed_passwd, session_id.encode() + encrypted_fp + encrypted_vuln)
+        signature = self.sign_with_client_priv_key(username, hmac_request)
+        encoded_signature = b64encode(signature).decode()
+        encoded_encrypted_vuln = b64encode(encrypted_vuln).decode('utf-8')
+        encoded_encrypted_fp = b64encode(encrypted_fp).decode('utf-8')
+
+        request = {'signature': encoded_signature,
+               'hmac': hmac_request,
+               'fingerprint': encoded_encrypted_fp,
+               'vulnDescription': encoded_encrypted_vuln,
+               'sessionId': session_id }
+        return json.dumps(request)
+
     def create_http_request_login(self, encrypted_message_credentials, encrypted_message_key, hashed_passwd, username):
         # Sign(HMAC)
         hmac_request = self.hmac_maker(hashed_passwd, encrypted_message_credentials + encrypted_message_key)
@@ -345,11 +360,45 @@ class Client:
 
         # /submit
     def submit(self, vuln_description, fingerprint):
-        self.login()
-        print("submit")
+        # self.login()
+        # print("submit")
 
-        content = vuln_description + "," + fingerprint + "," + sessionId
-        encrypted_content = self.encrypt_with_dh_symmetric_key(content)
+        # content = vuln_description + "," + fingerprint + "," + sessionId
+        # encrypted_content = self.encrypt_with_dh_symmetric_key(content)
+
+        if not self.login():
+            print("Error logging in")
+            exit()
+
+        hashed_passwd = self.hash_with_sha256_to_string(self.passwd.encode())
+        encrypted_fp = self.encrypt_with_dh_symmetric_key(fingerprint)
+        encrypted_vuln = self.encrypt_with_dh_symmetric_key(vuln_description)
+        print("ENCRYPTED FINGERPRINT: ", encrypted_fp)
+        print("ENCRYPTED VULN_DESC: ", encrypted_vuln)
+
+        json_request = self.create_http_request_submit(encrypted_fp,encrypted_vuln, 
+                                                        hashed_passwd, self.session_id, self.username)
+
+        print(json_request)
+        response = self.create_http_connection('POST', '/submit', json_request)
+        
+        print("http response: {}".format(response))
+
+        hmac_response = response['hmac']
+        signature = response['signature']
+        print("HMAC ", hmac_response)
+        print("SIGNATURE ", signature)
+        encrypted_subs_list = response['encryptedContent']
+        print('encrypted_subs_list: {}'.format(encrypted_subs_list))
+        decoded_encrypted_subs_list = b64decode(encrypted_subs_list)
+        self.check_message_integrity(hmac_response, hashed_passwd, decoded_encrypted_subs_list)
+        self.verify_server_signature(hmac_response, signature)
+
+        # process to generate key for client to encrypt following request message
+
+        decrypted_content = self.decrypt_with_dh_symmetric_key(decoded_encrypted_subs_list)
+        print('decrypted_content: {}'.format(decrypted_content.decode()))
+
         """hmac_request
         signature =
 
