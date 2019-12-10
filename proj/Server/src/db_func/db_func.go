@@ -75,7 +75,7 @@ func AddUser(username string, hashedPassword string, publicKey string) {
 }
 
 //Retrives the hashed password for a specific user
-func GetUserPasswordHash(username string) string {
+func GetUserPasswordHash(username string) (string, bool) {
 	//Connects to the database
 	db := connDB()
 	//Does the query
@@ -86,12 +86,13 @@ func GetUserPasswordHash(username string) string {
 
 	if err != nil {
 		SQLErrorHandling(err)
+		return "", false
 	}
 
 	//Closes the connection to the database
 	db.Close()
 
-	return password
+	return password, true
 }
 
 //
