@@ -361,10 +361,39 @@ class Client:
 
         self.create_http_connection('POST', '/submit', json_data)"""
 
-    # /show
-    def show(self):
-        self.login()
-        print("show")
+   # /score
+    def score(self):
+        if not self.login():
+            print("Error logging in")
+            exit()
+
+        hashed_passwd = self.hash_with_sha256_to_string(self.passwd.encode())
+        encrypted_data = self.encrypt_with_dh_symmetric_key(self.session_id+self.username)
+        print("ENCRYPTED DATA: ", encrypted_data)
+
+        json_request = self.create_http_request_json(encrypted_data,
+                                                    hashed_passwd, self.session_id, self.username)
+
+        print(json_request)
+        response = self.create_http_connection('POST', '/show', json_request)
+        
+        print("http response: {}".format(response))
+
+        hmac_response = response['hmac']
+        signature = response['signature']
+        print("HMAC ", hmac_response)
+        print("SIGNATURE ", signature)
+        encrypted_subs_list = response['encryptedContent']
+        print('encrypted_subs_list: {}'.format(encrypted_subs_list))
+        decoded_encrypted_subs_list = b64decode(encrypted_subs_list)
+        self.check_message_integrity(hmac_response, hashed_passwd, decoded_encrypted_subs_list)
+        self.verify_server_signature(hmac_response, signature)
+
+        # process to generate key for client to encrypt following request message
+
+        decrypted_content = self.decrypt_with_dh_symmetric_key(decoded_encrypted_subs_list)
+        print('decrypted_content: {}'.format(decrypted_content.decode()))
+
         """foo = {'show': "ola"}
         json_data = json.dumps(foo)
 
