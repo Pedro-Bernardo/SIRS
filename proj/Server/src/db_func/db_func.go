@@ -108,17 +108,17 @@ func GetUserPublicKey(username string) string {
 	return publicKey
 }
 
-//Creates a new user in the database
-func AddSession(username string, secret string) {
+//Associates a already created username with the admin privileges
+func AddAdmin(username string) {
 	db := connDB()
 
-	queryStmt, err := db.Prepare("INSERT INTO sessions (user_id,secret) SELECT id, $1 FROM accounts WHERE username = $2")
+	queryStmt, err := db.Prepare("INSERT INTO admin (user_id) SELECT id FROM accounts WHERE username = $1")
 
 	//the database itself should error if the username already exists
-	_, err = queryStmt.Exec(secret, username)
+	_, err = queryStmt.Exec(username)
 
 	if err == nil {
-		log.Println("Successfully created a new session!")
+		log.Println("Successfully added a new admin!")
 	} else {
 		SQLErrorHandling(err)
 	}
@@ -126,15 +126,17 @@ func AddSession(username string, secret string) {
 	db.Close()
 }
 
-//Retrives the session secret for the communication server/client
-func GetSecret(username string) string {
+//Checks if the given username is an admin
+func IsAdmin(username string) bool {
 	//Connects to the database
 	db := connDB()
 	//Does the query
-	queryStmt, err := db.Prepare("SELECT secret FROM accounts INNER JOIN sessions ON accounts.id= sessions.user_id WHERE username = $1")
+	queryStmt, err := db.Prepare("SELECT username FROM accounts INNER JOIN admin ON accounts.id= admin.user_id WHERE username = $1")
 
-	var secret string
-	err = queryStmt.QueryRow(username).Scan(&secret)
+	//if the username provided is indeed the admin
+	//the result should be user = username
+	var user string
+	err = queryStmt.QueryRow(username).Scan(&user)
 
 	if err != nil {
 		SQLErrorHandling(err)
@@ -143,26 +145,13 @@ func GetSecret(username string) string {
 	//Closes the connection to the database
 	db.Close()
 
-	return secret
-}
-
-//Creates a new user in the database
-func SetSecret(username string, secret string) {
-	db := connDB()
-
-	queryStmt, err := db.Prepare("UPDATE sessions SET secret = $1 FROM accounts WHERE sessions.user_id = accounts.id AND accounts.username = $2")
-
-	//the database itself should error if the username already exists
-	_, err = queryStmt.Exec(secret, username)
-
-	if err != nil {
-		SQLErrorHandling(err)
-
+	//check if the result is null
+	if user != "" && user == username {
+		return true
 	} else {
-		log.Println("Successfully updated the users secret!")
+		return false
 	}
 
-	db.Close()
 }
 
 //FIXME: duplicates
@@ -330,7 +319,8 @@ func AdminRemoveUser(username string) {
 
 func connDB() *sql.DB {
 	//FIXME: maybe import this ?
-	var dbHost string = "172.18.1.11"
+	var dbHost string = "127.0.0.1"
+	// var dbHost string = "172.18.1.11"
 	var dbPort string = "5432"
 	var username string = "sirs"
 	var dbName string = "sirsdb"

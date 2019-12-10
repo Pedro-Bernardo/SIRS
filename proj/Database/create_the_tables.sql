@@ -42,7 +42,6 @@ CREATE FUNCTION public.remove_user() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN	
-	DELETE FROM sessions USING accounts  WHERE user_id = (SELECT user_id FROM accounts WHERE username = OLD.username);	
 	DELETE FROM submissions WHERE user_id = (SELECT user_id FROM accounts WHERE username = OLD.username);
 	
 	DROP TRIGGER IF EXISTS remove_user ON accounts;
@@ -152,16 +151,15 @@ ALTER SEQUENCE public.binaries_id_seq OWNED BY public.binaries.id;
 
 
 --
--- Name: sessions; Type: TABLE; Schema: public; Owner: sirs
+-- Name: admin; Type: TABLE; Schema: public; Owner: sirs
 --
 
-CREATE TABLE public.sessions (
-    user_id integer NOT NULL,
-    secret text
+CREATE TABLE public.admin (
+    user_id integer NOT NULL
 );
 
 
-ALTER TABLE public.sessions OWNER TO sirs;
+ALTER TABLE public.admin OWNER TO sirs;
 
 --
 -- Name: submissions; Type: TABLE; Schema: public; Owner: sirs
@@ -253,11 +251,11 @@ ALTER TABLE ONLY public.binaries
 
 
 --
--- Name: sessions sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: sirs
+-- Name: admin admin_pkey; Type: CONSTRAINT; Schema: public; Owner: sirs
 --
 
-ALTER TABLE ONLY public.sessions
-    ADD CONSTRAINT sessions_pkey PRIMARY KEY (user_id);
+ALTER TABLE ONLY public.admin
+    ADD CONSTRAINT admin_pkey PRIMARY KEY (user_id);
 
 
 --
@@ -298,11 +296,11 @@ CREATE TRIGGER update_points AFTER INSERT ON public.submissions FOR EACH ROW EXE
 
 
 --
--- Name: sessions session_user_id_fk; Type: FK CONSTRAINT; Schema: public; Owner: sirs
+-- Name: admin admin_user_id_fk; Type: FK CONSTRAINT; Schema: public; Owner: sirs
 --
 
-ALTER TABLE ONLY public.sessions
-    ADD CONSTRAINT session_user_id_fk FOREIGN KEY (user_id) REFERENCES public.accounts(id);
+ALTER TABLE ONLY public.admin
+    ADD CONSTRAINT admin_user_id_fk FOREIGN KEY (user_id) REFERENCES public.accounts(id);
 
 
 --
