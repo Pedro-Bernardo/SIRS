@@ -401,6 +401,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	hashedPasswd := fields[1]
 	hashedPasswdBytes := []byte(hashedPasswd)
 	// TODO: VERIFICAR HASH DA PASSWOOOORD
+
 	// fields[2] == first half of Kc
 	clientKey := fields[2] + decryptedKey
 
@@ -481,15 +482,15 @@ func showHandler(w http.ResponseWriter, r *http.Request) {
 	// delete session entry when current function is left
 	defer delete(sessions, showRequest.SessionID)
 
-	submissions := db_func.GetUserSubmissions()
+	submissions := db_func.GetUserSubmissions(sessions[showRequest.SessionID].Username)
 
 	fmt.Printf("Submissions: %v\n", submissions)
 	subs_data := ""
 	for _, entry := range submissions {
 		fmt.Printf("entry: %v\n", entry)
-		fmt.Printf("Vulnerability: %v\n", entry.vuln)
-		fmt.Printf("Binary Fingerprint: %v\n", entry.binFP)
-		subs_data = subs_data + fmt.Sprintf("%s,%s,", entry.vuln, entry.binFP)
+		fmt.Printf("Vulnerability: %v\n", entry.Vuln)
+		fmt.Printf("Binary Fingerprint: %v\n", entry.BinFP)
+		subs_data = subs_data + fmt.Sprintf("%s,%s,", entry.Vuln, entry.BinFP)
 	}
 
 	subs_data_final := subs_data[:len(subs_data)-1]

@@ -361,8 +361,8 @@ class Client:
 
         self.create_http_connection('POST', '/submit', json_data)"""
 
-   # /score
-    def score(self):
+   # /show
+    def show(self):
         if not self.login():
             print("Error logging in")
             exit()
@@ -393,11 +393,6 @@ class Client:
 
         decrypted_content = self.decrypt_with_dh_symmetric_key(decoded_encrypted_subs_list)
         print('decrypted_content: {}'.format(decrypted_content.decode()))
-
-        """foo = {'show': "ola"}
-        json_data = json.dumps(foo)
-
-        self.create_http_connection('POST', '/show', json_data)"""
 
     # /score
     def score(self):

@@ -10,8 +10,8 @@ import (
 )
 
 type Submission struct {
-	vuln  string
-	binFP string
+	Vuln  string
+	BinFP string
 }
 
 type Score struct {
@@ -203,7 +203,7 @@ func GetUserSubmissions(username string) []Submission {
 			log.Fatal(err)
 		}
 
-		submissions = append(submissions, Submission{vuln: vuln, binFP: binFP})
+		submissions = append(submissions, Submission{Vuln: vuln, BinFP: binFP})
 	}
 	if err != nil {
 		SQLErrorHandling(err)
@@ -265,9 +265,9 @@ func AdminGetAllSubmissions() map[string][]Submission {
 
 		//checks if already exists
 		if _, ok := submissions[username]; ok {
-			submissions[username] = append(submissions[username], Submission{vuln: vuln, binFP: binFP})
+			submissions[username] = append(submissions[username], Submission{Vuln: vuln, BinFP: binFP})
 		} else {
-			submissions[username] = []Submission{Submission{vuln: vuln, binFP: binFP}}
+			submissions[username] = []Submission{Submission{Vuln: vuln, BinFP: binFP}}
 		}
 
 	}
