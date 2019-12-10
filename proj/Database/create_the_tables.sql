@@ -278,21 +278,21 @@ ALTER TABLE ONLY public.submissions
 -- Name: submissions remove_points; Type: TRIGGER; Schema: public; Owner: sirs
 --
 
-CREATE TRIGGER remove_points AFTER DELETE ON public.submissions FOR EACH ROW EXECUTE FUNCTION public.remove_points();
+CREATE TRIGGER remove_points AFTER DELETE ON public.submissions FOR EACH ROW EXECUTE PROCEDURE public.remove_points();
 
 
 --
 -- Name: accounts remove_user; Type: TRIGGER; Schema: public; Owner: sirs
 --
 
-CREATE TRIGGER remove_user BEFORE DELETE ON public.accounts FOR EACH ROW EXECUTE FUNCTION public.remove_user();
+CREATE TRIGGER remove_user BEFORE DELETE ON public.accounts FOR EACH ROW EXECUTE PROCEDURE public.remove_user();
 
 
 --
 -- Name: submissions update_points; Type: TRIGGER; Schema: public; Owner: sirs
 --
 
-CREATE TRIGGER update_points AFTER INSERT ON public.submissions FOR EACH ROW EXECUTE FUNCTION public.update_points();
+CREATE TRIGGER update_points AFTER INSERT ON public.submissions FOR EACH ROW EXECUTE PROCEDURE public.update_points();
 
 
 --
