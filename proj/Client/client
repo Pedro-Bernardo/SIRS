@@ -7,6 +7,7 @@ import getpass
 import ssl
 import http.client
 import json
+import time
 
 # generate secure random numbers
 from secrets import randbits
@@ -182,18 +183,20 @@ class Client:
                'sessionId': session_id }
         return json.dumps(request)
 
-    def create_http_request_login(self, encrypted_message_credentials, encrypted_message_key, hashed_passwd, username):
+    def create_http_request_login(self, encrypted_timestamp, encrypted_message_credentials, encrypted_message_key, hashed_passwd, username):
         # Sign(HMAC)
-        hmac_request = self.hmac_maker(hashed_passwd, encrypted_message_credentials + encrypted_message_key)
+        hmac_request = self.hmac_maker(hashed_passwd, encrypted_message_credentials + encrypted_message_key + encrypted_timestamp)
         signature = self.sign_with_client_priv_key(username, hmac_request)
         encoded_signature = b64encode(signature).decode()
         encoded_encrypted_message_credentials = b64encode(encrypted_message_credentials).decode('utf-8')
         encoded_encrypted_message_key = b64encode(encrypted_message_key).decode('utf-8')
+        encoded_encrypted_timestamp = b64encode(encrypted_timestamp).decode('utf-8')
 
         request = {'signature': encoded_signature,
                'hmac': hmac_request,
                'encryptedCredentials': encoded_encrypted_message_credentials,
-               'encryptedKey': encoded_encrypted_message_key}
+               'encryptedKey': encoded_encrypted_message_key,
+               'encryptedTimestamp': encoded_encrypted_timestamp}
         return json.dumps(request)
 
     def encrypt_with_server_pub_key(self, encoded_message):
@@ -329,7 +332,9 @@ class Client:
                                                                             + content_key[:60])
             encrypted_content_key = self.encrypt_with_server_pub_key(content_key[60:])
 
-            json_request = self.create_http_request_login(encrypted_content_credentials, encrypted_content_key,
+            encrypted_timestamp = self.encrypt_with_server_pub_key(datetime.datetime.now().__str__())
+
+            json_request = self.create_http_request_login(encrypted_timestamp, encrypted_content_credentials, encrypted_content_key,
                                                         hashed_passwd, username)
 
             response = self.create_http_connection('POST', '/login', json_request)
