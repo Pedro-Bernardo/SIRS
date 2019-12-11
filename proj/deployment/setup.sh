@@ -46,6 +46,16 @@ mkdir -p ../Client/ssl && cp cacerts/ca.crt server.crt ../Client/ssl
 echo "moving keys to server"
 mkdir -p ../Server/ssl && cp server_tls.key server_tls.crt server.key server.crt ../Server/ssl
 
+
+cd ../Server
+export GOPATH=`pwd`
+go get github.com/lib/pq
+go build src/db_func/db_func.go
+go build src/dh_go/hellman.go
+go build src/server/server.go
+
+cd ../deployment
+
 echo "copying files to docker images"
 mkdir -p docker/client/client/ && cp -r ../Client/client ../Client/ssl docker/client/client/
 mkdir -p docker/server/server/ && cp -r ../Server/pkg ../Server/src ../Server/ssl ../Server/bin docker/server/server/
@@ -53,10 +63,10 @@ mkdir -p docker/server/server/ && cp -r ../Server/pkg ../Server/src ../Server/ss
 cd docker
 
 for i in $(ls -d */); do 
-    # remove "/" form directory name
-    directory_name=$(echo $i | rev | cut -c 2- | rev)
-    echo "creating container for $directory_name" 
-    cd $i && docker build . --tag=$directory_name && cd ..
+   # remove "/" form directory name
+   directory_name=$(echo $i | rev | cut -c 2- | rev)
+   echo "creating container for $directory_name" 
+   cd $i && docker build . --tag=$directory_name && cd ..
 done
 
 docker-compose up -d
