@@ -66,6 +66,7 @@ type LoginRequest struct {
 	Hmac                 string `json:"hmac"`
 	EncryptedCredentials []byte `json:"encryptedCredentials"`
 	EncryptedKey         []byte `json:"encryptedKey"`
+	EncryptedTimestamp   []byte `json:"encryptedTimestamp"`
 }
 
 type LoginResponse struct {
@@ -427,8 +428,31 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	// decrypt last half of Kc
 	decryptedKey := DecryptWithPrivateKey(userRequest.EncryptedKey, serverPrivateKey)
-
 	decryptedCredentials := DecryptWithPrivateKey(userRequest.EncryptedCredentials, serverPrivateKey)
+	decryptedTimestamp := DecryptWithPrivateKey(userRequest.EncryptedTimestamp, serverPrivateKey)
+
+	log.Printf("Decrypted timestamp: %v\n", decryptedTimestamp)
+	sent_ts, err := strconv.ParseInt(decryptedTimestamp, 10, 64)
+	if err != nil {
+		log.Println("Invalid timestamp")
+		// http.Error(w, err, http.StatusUnauthorized)
+		http.Error(w, "Invalid timestamp", http.StatusBadRequest)
+		fmt.Fprintf(w, "")
+		return
+	}
+
+	tm := time.Now().Unix()
+
+	// check if ts is older than 10 seconds
+	log.Printf("sent ts: %v\nmy ts: %v\n", strconv.Itoa(int(sent_ts)), strconv.Itoa(int(tm)))
+	if (tm - sent_ts) > 10 {
+		log.Println("Expired request")
+		// http.Error(w, err, http.StatusUnauthorized)
+		http.Error(w, "Expired request", http.StatusBadRequest)
+		fmt.Fprintf(w, "")
+		return
+	}
+	fmt.Println(tm)
 
 	fields := strings.Split(decryptedCredentials, ",")
 	username := fields[0]
@@ -436,8 +460,8 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	hashedPasswdBytes := []byte(hashedPasswd)
 	// TODO: VERIFICAR HASH DA PASSWOOOORD
 
-	realHashedPasswdBytes, err := db_func.GetUserPasswordHash(username)
-	if !err {
+	realHashedPasswdBytes, err2 := db_func.GetUserPasswordHash(username)
+	if !err2 {
 		log.Println("Invalid username")
 		// http.Error(w, err, http.StatusUnauthorized)
 		http.Error(w, "Invalid username", http.StatusUnauthorized)
@@ -454,19 +478,19 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	clientKey := fields[2] + decryptedKey
 
-	CheckMessageIntegrity(hmacBytes, append(userRequest.EncryptedCredentials, userRequest.EncryptedKey...), hashedPasswdBytes)
+	CheckMessageIntegrity(hmacBytes, append(append(userRequest.EncryptedCredentials, userRequest.EncryptedKey...), userRequest.EncryptedTimestamp...), hashedPasswdBytes)
 
 	authenic := VerifyClientSignaturePython(username, hmacBytes, signatureBytes)
 	log.Printf("Authentic message? %v", authenic)
 
-	for _, entry := range sessions {
-		if entry.Username == username {
-			log.Printf("User already logged in")
-			http.Error(w, "User already logged in", http.StatusUnauthorized)
-			fmt.Fprintf(w, "")
-			return
-		}
-	}
+	// for _, entry := range sessions {
+	// 	if entry.Username == username {
+	// 		log.Printf("User already logged in")
+	// 		http.Error(w, "User already logged in", http.StatusUnauthorized)
+	// 		fmt.Fprintf(w, "")
+	// 		return
+	// 	}
+	// }
 
 	sessionId := StringWithCharset(16)
 
@@ -876,7 +900,6 @@ func removeSubmissionHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func prune_sessions() {
-
 	var s_ids []string
 	for true {
 		log.Printf("cleaning sessions")
