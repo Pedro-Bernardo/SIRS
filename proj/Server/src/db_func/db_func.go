@@ -298,7 +298,7 @@ func AdminDeleteSubmission(subID int) {
 
 	//Does the query
 	// queryStmt, err := db.Prepare("DELETE FROM submissions USING (SELECT subs.id FROM (SELECT submissions.id,user_id,vuln,bin_fp FROM submissions INNER JOIN binaries ON submissions.bin_id = binaries.id) AS subs INNER JOIN accounts ON accounts.id = subs.user_id WHERE accounts.username = $1 AND subs.vuln=$2 AND subs.bin_fp=$3) AS tmp WHERE tmp.id = submissions.id")
-	queryStmt, err := db.Prepare("DELETE FROM submissions USING (SELECT id FROM submissions WHERE submissions.id = $1")
+	queryStmt, err := db.Prepare("DELETE FROM submissions WHERE id = $1")
 	_, err = queryStmt.Exec(subID)
 
 	if err != nil {
@@ -330,8 +330,8 @@ func AdminRemoveUser(username string) {
 
 func connDB() *sql.DB {
 	//FIXME: maybe import this ?
-	var dbHost string = "127.0.0.1"
-	// var dbHost string = "172.18.1.11"
+	// var dbHost string = "127.0.0.1"
+	var dbHost string = "172.18.1.11"
 	var dbPort string = "5432"
 	var username string = "sirs"
 	var dbName string = "sirsdb"

@@ -271,7 +271,7 @@ ALTER TABLE ONLY public.submissions
 --
 
 ALTER TABLE ONLY public.submissions
-    ADD CONSTRAINT submissions_vuln_bin_id_unique UNIQUE (vuln, bin_id);
+    ADD CONSTRAINT submissions_vuln_bin_id_unique UNIQUE (user_id, vuln, bin_id);
 
 
 --
@@ -319,7 +319,19 @@ ALTER TABLE ONLY public.submissions
     ADD CONSTRAINT submissions_bin_id_fkey FOREIGN KEY (bin_id) REFERENCES public.binaries(id);
 
 
+COPY public.accounts (id, username, public_key, pass, points) FROM stdin;
+1	admin	\x2d\x2d\x2d\x2d\x2dBEGIN PUBLIC KEY\x2d\x2d\x2d\x2d\x2d\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtm29T4l4xYRpQJrfVNin\nrJYHKb4XQe0ouMlVwr5q0zC56nWjYznul7RfjTHpvnoMfw0yBMzwwTZVko4NUW9X\n3bbbZ7oFJBY1HWYBeynBLOqrGpgKbi4WqsowDR7EM8FCcKI2umbi7gUiy44EarTo\n4sf6jHXrdBH0J+llDUtglYqWPHZ+psI4QCRiHkFUeKjY1Hw2FocRQfb5muR6+hSX\nEDwGsy97lP0+zpV6lgjyCitBDfX5oUWixkpf2ZfplIOx72R08LoDldQohng6OlCO\nakeIeaEg3AY9xXTDtPX5meQGuT9VlPWwU7cJV+wqp5i67am6qXhspITF1JfWP5Mc\nOwIDAQAB\n\x2d\x2d\x2d\x2d\x2dEND PUBLIC KEY\x2d\x2d\x2d\x2d\x2d	29b64e6e66b4ad8c8edcde17fd76be1e3552b88d96f77f97091df6946756781a	0
+\.
+
+COPY public.admin (user_id) FROM stdin;
+1
+\.
+
+-- admin_pass = Iloveyou666
+
 --
 -- PostgreSQL database dump complete
 --
+
+
 

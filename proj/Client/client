@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import argparse
 from argparse import RawTextHelpFormatter
+from http import HTTPStatus
 import sys
 import getpass
 import ssl
@@ -116,25 +117,41 @@ class Client:
         ssl.match_hostname = lambda cert, hostname: True
 
         headers = {'Content-type': 'application/json'}
+        try:
+            conn = http.client.HTTPSConnection(self.HOST_ADDR, context=context, timeout=10)
+            conn.request(method, endpoint, json_data, headers)
 
-        conn = http.client.HTTPSConnection(self.HOST_ADDR, context=context)
-        conn.request(method, endpoint, json_data, headers)
+            response = conn.getresponse()
+            self.check_status_code(response)
+            response = response.read().decode()
+            
+            return json.loads(response)
 
-        response = conn.getresponse()
-        print("Server https response: {}".format(response.read().decode()))
-
-        return response
+        except Exception as e:
+            print("Connection closed: ", e)
+            exit()
 
     def create_http_connection(self, method, endpoint, json_data):
         headers = {'Content-type': 'application/json'}
 
-        conn = http.client.HTTPConnection(self.HOST_ADDR)
-        conn.request(method, endpoint, json_data, headers)
+        try:
+            conn = http.client.HTTPConnection(self.HOST_ADDR, timeout=10)
+            conn.request(method, endpoint, json_data, headers)
 
-        response = conn.getresponse()
-        response = response.read().decode()
+            response = conn.getresponse()
+            self.check_status_code(response)
+            response = response.read().decode()
 
-        return json.loads(response)
+            return json.loads(response)
+        except Exception as e:
+            print("Connection timeout: ", e)
+            exit()
+
+    def check_status_code(self, response):
+        if response.code != http.HTTPStatus(200):
+            print('Error: {}'.format(response.code))
+            print('Message: {}'.format(response.read().decode()))
+            exit()
 
     def create_http_request_json(self, encrytped_content, hashed_passwd, session_id, username):
         # Sign(HMAC)
@@ -173,8 +190,6 @@ class Client:
         encoded_encrypted_message_credentials = b64encode(encrypted_message_credentials).decode('utf-8')
         encoded_encrypted_message_key = b64encode(encrypted_message_key).decode('utf-8')
 
-        #print("encrypted_message_credentials {}".format(encrypted_message_credentials.hex()))
-        #print("encrypted_message_key {}".format(encrypted_message_key))
         request = {'signature': encoded_signature,
                'hmac': hmac_request,
                'encryptedCredentials': encoded_encrypted_message_credentials,
@@ -184,7 +199,6 @@ class Client:
     def encrypt_with_server_pub_key(self, encoded_message):
         server_pub_key = self.SERVER_HTTP_CERT.get_pubkey().to_cryptography_key()
 
-        print("len message to encrypt with server pub key {}".format(len(encoded_message)))
         # Optimal Asymmetric Encryption Padding (OAEP)
         return server_pub_key.encrypt(encoded_message,
                         padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
@@ -220,12 +234,9 @@ class Client:
         with open(self.SSL_DIR + username + self.CLIENT_PRIV_KEY_SUBSTRING, "r") as priv_key_file:
             private_key = RSA.importKey(priv_key_file.read())
 
-        print("hmac {}".format(hmac_message))
         encoded_hmac = hmac_message.encode()
-        #hashed_hmac = SHA256.new(encoded_hmac)
         hashed_hmac = SHA256.new()
         hashed_hmac.update(encoded_hmac)
-        print("hashed hmac {}".format(hashed_hmac.hexdigest().encode()))
 
         return PKCS1_PSS.new(private_key).sign(hashed_hmac)
 
@@ -242,12 +253,8 @@ class Client:
         # iv is going to be first 16 bytes of encrypted_message
         iv = encrypted_message[:16]
         decoded_message = encrypted_message[16:]
-        print("IV: ", iv)
-        print("decoded_message size: {}".format(len(decoded_message)))
-        print("decoded_message: {}".format(decoded_message))
         symmetric_key = self.hash_with_sha256_32_bytes(long_to_bytes(self.K))
         cipher = AES.new(symmetric_key, AES.MODE_CBC, iv)
-        #cipher = AES.new(long_to_bytes(self.Kc), AES.MODE_CBC, iv)
         return unpad(cipher.decrypt(decoded_message), AES.block_size, style='pkcs7')
 
     def encrypt_with_dh_symmetric_key(self, message):
@@ -286,11 +293,9 @@ class Client:
 
         if passwd.__eq__(passwd_rep):
             self.generate_key_pair(username)
-            # can we send pub key through tls ???????????
 
             hashed_passwd = self.hash_with_sha256_to_string(passwd.encode())
             with open(self.SSL_DIR + username + self.CLIENT_PUB_KEY_SUBSTRING, "r") as pub_key_file:
-                #public_key = RSA.importKey(pub_key_file.read())
                 pub_key_text = pub_key_file.read()
 
             json_encoded_public_key = b64encode(pub_key_text.encode()).decode()
@@ -317,10 +322,8 @@ class Client:
 
             hashed_passwd = self.hash_with_sha256_to_string(passwd.encode())
             content_credentials = username + ',' + hashed_passwd + ','
-            print("content_key {}".format(self.Kc))
             content_key = long_to_bytes(self.Kc)
-            print("content_key encoded {}".format(content_key))
-            print("content_key decoded {}".format(content_key.decode('latin-1')))
+            
             # last 60 bytes of the credentials are going to be part of the key
             encrypted_content_credentials = self.encrypt_with_server_pub_key(content_credentials.encode('latin-1')
                                                                             + content_key[:60])
@@ -335,27 +338,22 @@ class Client:
 
             hmac_response = response['hmac']
             signature = response['signature']
-            print("HMAC ", hmac_response)
-            print("SIGNATURE ", signature)
             encrypted_content = response['encryptedContent']
-            print('encrypted_content: {}'.format(encrypted_content))
             decoded_encrypted_content = b64decode(encrypted_content)
-            self.check_message_integrity(hmac_response, hashed_passwd, decoded_encrypted_content)
+            self.check_message_integrity(hmac_response, hashed_passwd, response['dhServerKey'].encode() + decoded_encrypted_content)
             self.verify_server_signature(hmac_response, signature)
 
             # process to generate key for client to encrypt following request message
             self.Ks = int(response['dhServerKey'])
             self.generate_diffie_hellman_secret_key()
-            print("secret k: {}".format(self.K))
 
             decrypted_content = self.decrypt_with_dh_symmetric_key(decoded_encrypted_content)
-            print('decrypted_content: {}'.format(decrypted_content))
 
             self.session_id = decrypted_content.decode().split(",")[1]
             print('session id: {}'.format(self.session_id))
             return True
         except Exception as e:
-            print("@ LOGIN AAAAAAAAAA", e)
+            print("DED @ login: ", e)
             return False
 
         # /submit
@@ -373,42 +371,26 @@ class Client:
         hashed_passwd = self.hash_with_sha256_to_string(self.passwd.encode())
         encrypted_fp = self.encrypt_with_dh_symmetric_key(fingerprint)
         encrypted_vuln = self.encrypt_with_dh_symmetric_key(vuln_description)
-        print("ENCRYPTED FINGERPRINT: ", encrypted_fp)
-        print("ENCRYPTED VULN_DESC: ", encrypted_vuln)
 
         json_request = self.create_http_request_submit(encrypted_fp,encrypted_vuln, 
                                                         hashed_passwd, self.session_id, self.username)
 
-        print(json_request)
         response = self.create_http_connection('POST', '/submit', json_request)
         
         print("http response: {}".format(response))
 
         hmac_response = response['hmac']
         signature = response['signature']
-        print("HMAC ", hmac_response)
-        print("SIGNATURE ", signature)
-        encrypted_subs_list = response['encryptedContent']
-        print('encrypted_subs_list: {}'.format(encrypted_subs_list))
-        decoded_encrypted_subs_list = b64decode(encrypted_subs_list)
-        self.check_message_integrity(hmac_response, hashed_passwd, decoded_encrypted_subs_list)
+        ecrypted_status = response['encryptedContent']
+        decoded_status = b64decode(ecrypted_status)
+        self.check_message_integrity(hmac_response, hashed_passwd, decoded_status)
         self.verify_server_signature(hmac_response, signature)
 
         # process to generate key for client to encrypt following request message
 
-        decrypted_content = self.decrypt_with_dh_symmetric_key(decoded_encrypted_subs_list)
+        decrypted_content = self.decrypt_with_dh_symmetric_key(decoded_status)
         print('decrypted_content: {}'.format(decrypted_content.decode()))
 
-        """hmac_request
-        signature =
-
-        foo = {'signature': ,
-               'hmac': ,
-              # encrypted content is going to be vuln_description + fingerprint + sessionId
-               'encryptedContent': encrypted_content}
-        json_data = json.dumps(foo)
-
-        self.create_http_connection('POST', '/submit', json_data)"""
 
    # /show
     def show(self):
@@ -418,22 +400,15 @@ class Client:
 
         hashed_passwd = self.hash_with_sha256_to_string(self.passwd.encode())
         encrypted_data = self.encrypt_with_dh_symmetric_key(self.session_id+self.username)
-        print("ENCRYPTED DATA: ", encrypted_data)
 
         json_request = self.create_http_request_json(encrypted_data,
                                                     hashed_passwd, self.session_id, self.username)
 
-        print(json_request)
         response = self.create_http_connection('POST', '/show', json_request)
         
-        print("http response: {}".format(response))
-
         hmac_response = response['hmac']
         signature = response['signature']
-        print("HMAC ", hmac_response)
-        print("SIGNATURE ", signature)
         encrypted_subs_list = response['encryptedContent']
-        print('encrypted_subs_list: {}'.format(encrypted_subs_list))
         decoded_encrypted_subs_list = b64decode(encrypted_subs_list)
         self.check_message_integrity(hmac_response, hashed_passwd, decoded_encrypted_subs_list)
         self.verify_server_signature(hmac_response, signature)
@@ -451,22 +426,15 @@ class Client:
 
         hashed_passwd = self.hash_with_sha256_to_string(self.passwd.encode())
         encrypted_data = self.encrypt_with_dh_symmetric_key(self.session_id+self.username)
-        print("ENCRYPTED DATA: ", encrypted_data)
 
         json_request = self.create_http_request_json(encrypted_data,
                                                     hashed_passwd, self.session_id, self.username)
 
-        print(json_request)
         response = self.create_http_connection('POST', '/score', json_request)
         
-        print("http response: {}".format(response))
-
         hmac_response = response['hmac']
         signature = response['signature']
-        print("HMAC ", hmac_response)
-        print("SIGNATURE ", signature)
         encrypted_score_list = response['encryptedContent']
-        print('encrypted_score_list: {}'.format(encrypted_score_list))
         decoded_encrypted_score_list = b64decode(encrypted_score_list)
         self.check_message_integrity(hmac_response, hashed_passwd, decoded_encrypted_score_list)
         self.verify_server_signature(hmac_response, signature)
@@ -477,15 +445,59 @@ class Client:
         print('decrypted_content: {}'.format(decrypted_content.decode()))
 
 
+# /admin_show
+    def admin_show(self):
+        if not self.login():
+            print("Error logging in")
+            exit()
+
+        signature = self.sign_with_client_priv_key(self.username, self.username)
+        encoded_signature = b64encode(signature).decode()
+        
+        foo = {'signature': encoded_signature,
+               'username': self.username,
+               'sessionId': self.session_id}
+        json_data = json.dumps(foo)
+
+        response = self.create_http_tls_connection('POST', '/admin/show', json_data)
+        print('status: {}'.format(response['status']))
+
     # /admin/remove_user
-    def remove_user(self):
-        self.login()
-        print("admin : remove_user")
+    def remove_user(self, usernameToRemove):
+        if not self.login():
+            print("Error logging in")
+            exit()
+
+        signature = self.sign_with_client_priv_key(self.username, self.username)
+        encoded_signature = b64encode(signature).decode()
+
+        foo = {'signature': encoded_signature,
+               'username': self.username,
+               'usernameToRemove': usernameToRemove,
+               'sessionId': self.session_id}
+        json_data = json.dumps(foo)
+
+        response = self.create_http_tls_connection('POST', '/admin/remove_user', json_data)
+        print('remove_user {}'.format(response['status']))
+
 
     # /admin/remove_submission
-    def remove_submission(self):
-        self.login()
-        print("admin : remove_submission")
+    def remove_submission(self, idToRemove):
+        if not self.login():
+            print("Error logging in")
+            exit()
+
+        signature = self.sign_with_client_priv_key(self.username, self.username)
+        encoded_signature = b64encode(signature).decode()
+
+        foo = {'signature': encoded_signature,
+               'username': self.username,
+               'idToRemove': int(idToRemove),
+               'sessionId': self.session_id}
+        json_data = json.dumps(foo)
+
+        response = self.create_http_tls_connection('POST', '/admin/remove_submission', json_data)
+        print('remove_submission {}'.format(response['status']))
 
 
 def error(message):
@@ -494,41 +506,65 @@ def error(message):
 
 
 def main():
-
+    
     client = Client()
 
     description = 'Welcome to the Vulnerability Submission Platform\n\
-    register   Register new client account\n\
-    submit     Submit vulnerability\n\
-    show       Show submissions\n\
-    score      Show scores\n'
+    register                    Register new client account\n\
+    submit                      Submit vulnerability\n\
+    show                        Show submissions\n\
+    score                       Show scores\n\
+    admin_show                  Show submissions of all users\n\
+    admin_remove_user           Removes a user\n\
+    admin_remove_submission     Removes a submission\n'
 
     usage = '\n\
     client <command> [<args>]\n\
     client register\n\
     client submit <vuln_description> <fingerprint>\n\
     client show\n\
-    client score\n'
+    client score\n\
+    client admin_show\n\
+    client admin_remove_user <username_to_remove>\n\
+    client admin_remove_submission <id_to_remove>\n'
 
     parser = argparse.ArgumentParser(prog='client', description=description,
                                      usage=usage, formatter_class=RawTextHelpFormatter)
-    parser.add_argument('command', type=str, choices=['register', 'submit', 'show', 'score'])
-    parser.add_argument('vuln_description', nargs='?')
-    parser.add_argument('fingerprint', nargs='?')
+    parser.add_argument('command', type=str, choices=['register', 'submit', 'show', 'score',
+                                                      'admin_show',
+                                                      'admin_remove_user', 'admin_remove_submission'])
+    parser.add_argument('first', nargs='?')
+    parser.add_argument('second', nargs='?')
 
     args = parser.parse_args()
 
     if args.command.__eq__('register'):
         client.register()
     elif args.command.__eq__('submit'):
-        if args.vuln_description and args.fingerprint:
-            client.submit(args.vuln_description, args.fingerprint)
+        # args.first => vuln_description
+        # args.second => fingerprint
+        if args.first and args.second:
+            client.submit(args.first, args.second)
         else:
             parser.error('wrong arguments for submit command')
     elif args.command.__eq__('show'):
         client.show()
     elif args.command.__eq__('score'):
         client.score()
+    elif args.command.__eq__('admin_show'):
+        client.admin_show()
+    elif args.command.__eq__('admin_remove_user'):
+        # args.first => usernameToRemove
+        if args.first:
+            client.remove_user(args.first)
+        else:
+            parser.error('wrong arguments for remove_user command')
+    elif args.command.__eq__('admin_remove_submission'):
+        # args.first => idToRemove
+        if args.first:
+            client.remove_submission(args.first)
+        else:
+            parser.error('wrong arguments for remove_user command')
 
 
 if __name__ == "__main__":
